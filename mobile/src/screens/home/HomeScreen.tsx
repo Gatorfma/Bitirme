@@ -22,7 +22,7 @@ const vertSource = `
 
 // 2. Fragment Shader: Animated Atmosphere effect
 const fragSource = `
-  precision highp float;
+  precision mediump float;
   uniform float time;
   uniform vec2 resolution;
 
