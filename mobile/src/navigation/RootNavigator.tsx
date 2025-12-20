@@ -67,20 +67,12 @@ export function RootNavigator() {
         contentStyle: { backgroundColor: '#FAFBFC' },
         animation: 'fade',
       }}
+      initialRouteName={!isAuthenticated ? 'Auth' : !isOnboarded ? 'Onboarding' : 'Home'}
     >
-      {!isAuthenticated ? (
-        // Not logged in - show auth screens
-        <Stack.Screen name="Auth" component={AuthNavigator} />
-      ) : !isOnboarded ? (
-        // Logged in but not onboarded - show onboarding
-        <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-      ) : (
-        // Logged in and onboarded - show Home first as a standalone screen
-        <>
-          <Stack.Screen name="Home" component={HomeScreen} />
-          <Stack.Screen name="Main" component={MainTabNavigator} />
-        </>
-      )}
+      <Stack.Screen name="Auth" component={AuthNavigator} />
+      <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+      <Stack.Screen name="Home" component={HomeScreen} />
+      <Stack.Screen name="Main" component={MainTabNavigator} />
     </Stack.Navigator>
   );
 }

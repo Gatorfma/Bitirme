@@ -26,6 +26,11 @@ import { getJournalAssistantReply } from '../../api/openaiChat';
 import { retrieve } from '../../rag/inMemoryRag';
 import { updateSlotsFromUserText, computeMissingSlots, type Slots } from '../../journal/slots';
 import { createSession, updateSession, deleteSession, hasUserMessages } from '../../journal/supabaseSessionRepo';
+import { summarizeAndExtractThoughts } from '../../agents/journalingPostProcessor';
+import { updateSessionSummaryAndThoughts } from '../../repos/journalSessionsRepo';
+import { insertThoughtItems } from '../../repos/thoughtItemsRepo';
+import { runCategorizationForSession } from '../../agents/categorizationPipeline';
+import { supabase } from '../../lib/supabase';
 
 type NavigationProp = JournalStackScreenProps<'NewSession'>['navigation'];
 
@@ -126,15 +131,109 @@ export default function NewSessionScreen() {
     })();
   }, [ensureSupabaseSession]);
 
+  // Post-process session: summarize and extract thoughts (non-blocking)
+  const postProcessSession = useCallback(async (currentMessages: ChatMessage[]) => {
+    if (!supabaseSessionIdRef.current) {
+      console.warn('[NewSession] Cannot post-process - no Supabase session ID');
+      return;
+    }
+
+    // Check if session has user messages
+    if (!hasUserMessages(currentMessages)) {
+      console.log('[NewSession] Skipping post-processing - no user messages');
+      return;
+    }
+
+    // Fire and forget - don't block UI
+    (async () => {
+      try {
+        // Check if session has already been post-processed
+        const { data: sessionData, error: fetchError } = await supabase
+          .from('journal_sessions')
+          .select('post_processed_at')
+          .eq('id', supabaseSessionIdRef.current!)
+          .single();
+
+        if (fetchError) {
+          console.error('[NewSession] Error checking post_processed_at:', {
+            sessionId: supabaseSessionIdRef.current,
+            error: fetchError.message,
+          });
+          // Continue anyway - don't block on this check
+        } else if (sessionData?.post_processed_at) {
+          console.log('[NewSession] Session already post-processed, skipping:', {
+            sessionId: supabaseSessionIdRef.current,
+            post_processed_at: sessionData.post_processed_at,
+          });
+          return;
+        }
+
+        // Convert messages to format expected by post-processor
+        const messagesForProcessing = currentMessages
+          .filter((msg) => msg.type === 'user' || msg.type === 'question')
+          .map((msg) => ({
+            role: (msg.type === 'user' ? 'user' : 'agent') as 'user' | 'agent',
+            content: msg.content,
+            timestamp: msg.timestamp,
+          }));
+
+        console.log('[NewSession] Post-processing session:', {
+          sessionId: supabaseSessionIdRef.current,
+          messageCount: messagesForProcessing.length,
+        });
+
+        // Step 1: Summarize and extract thoughts
+        const { summary, thoughts } = await summarizeAndExtractThoughts({
+          messages: messagesForProcessing,
+        });
+
+        console.log('[NewSession] Post-processing results:', {
+          summaryLength: summary.length,
+          thoughtCount: thoughts.length,
+        });
+
+        // Step 2: Update session summary and thoughts, and set post_processed_at
+        await updateSessionSummaryAndThoughts({
+          sessionId: supabaseSessionIdRef.current!,
+          summary,
+          thoughts,
+          setPostProcessedAt: true,
+        });
+
+        // Step 3: Insert thought items
+        await insertThoughtItems({
+          sessionId: supabaseSessionIdRef.current!,
+          thoughts: thoughts.map((t) => ({
+            text: t.text,
+            timestamp: t.timestamp,
+          })),
+        });
+
+        console.log('[NewSession] Post-processing completed successfully');
+
+        // Step 4: Run categorization pipeline (fire-and-forget)
+        if (supabaseSessionIdRef.current) {
+          runCategorizationForSession(supabaseSessionIdRef.current).catch((error) => {
+            console.error('[NewSession] Failed to run categorization pipeline:', error);
+          });
+        }
+      } catch (error) {
+        console.error('[NewSession] Failed to post-process session:', error);
+        // Don't throw - non-blocking
+      }
+    })();
+  }, []);
+
   // Save on unmount
   useEffect(() => {
     return () => {
       // Update session with endedAt on unmount (non-blocking)
       if (supabaseSessionIdRef.current) {
         updateSupabaseSession(messages, new Date().toISOString());
+        postProcessSession(messages);
       }
     };
-  }, [messages, updateSupabaseSession]);
+  }, [messages, updateSupabaseSession, postProcessSession]);
 
   // Save on back navigation (when screen loses focus)
   useFocusEffect(
@@ -143,9 +242,10 @@ export default function NewSessionScreen() {
         // Screen is losing focus (navigating away)
         if (supabaseSessionIdRef.current) {
           updateSupabaseSession(messages, new Date().toISOString());
+          postProcessSession(messages);
         }
       };
-    }, [messages, updateSupabaseSession])
+    }, [messages, updateSupabaseSession, postProcessSession])
   );
 
   const sendMessage = useCallback(async () => {
@@ -247,8 +347,9 @@ export default function NewSessionScreen() {
   const handleBack = useCallback(() => {
     // Update session with endedAt before navigating (non-blocking)
     updateSupabaseSession(messages, new Date().toISOString());
+    postProcessSession(messages);
     navigation.goBack();
-  }, [navigation, messages, updateSupabaseSession]);
+  }, [navigation, messages, updateSupabaseSession, postProcessSession]);
 
   const handleEndSession = async () => {
     if (userThoughts.length === 0) {
@@ -267,12 +368,14 @@ export default function NewSessionScreen() {
       
       // Update Supabase session with endedAt (non-blocking)
       updateSupabaseSession(messages, new Date().toISOString());
+      postProcessSession(messages);
       
       navigation.goBack();
     } catch (error) {
       console.error('Failed to save session:', error);
       // Still update Supabase even if API call failed
       updateSupabaseSession(messages, new Date().toISOString());
+      postProcessSession(messages);
     }
   };
 

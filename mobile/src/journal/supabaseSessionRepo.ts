@@ -17,7 +17,8 @@ type SupabaseSessionRow = {
   started_at: string;
   ended_at: string | null;
   messages: SessionMessage[];
-  meta: Record<string, any>;
+  summary: string | null;
+  thoughts: Array<{ text: string; timestamp?: string; confidence?: number }> | null;
   created_at: string;
 };
 
@@ -94,7 +95,8 @@ export async function createSession(params: {
       .insert({
         started_at: params.startedAt,
         messages: [], // Start with empty messages array
-        meta: {},
+        summary: null, // Optional, null on creation
+        thoughts: null, // Optional, null on creation
       })
       .select('id')
       .single();
@@ -159,13 +161,13 @@ function convertSupabaseSessionToJournalSession(row: SupabaseSessionRow): Journa
       sessionId: row.id,
       content: msg.content,
       timestamp: msg.timestamp,
-      // Sentiment and emotionalIntensity could be extracted from meta if stored
+      // Sentiment and emotionalIntensity could be extracted from thoughts array if stored
     }));
 
-  // Extract mood and summary from meta if available
-  const meta = row.meta || {};
-  const mood = meta.mood;
-  const summary = meta.summary;
+  // Extract summary directly from row (no longer from meta)
+  const summary = row.summary || undefined;
+  // Mood is not stored in the current schema, so it's undefined
+  const mood = undefined;
 
   return {
     id: row.id,
