@@ -22,6 +22,7 @@ export type AuthStackParamList = {
 
 // Main Tab Navigator param list
 export type MainTabParamList = {
+  Home: undefined;
   JournalHome: undefined;
   MindMap: undefined;
   Stats: undefined;
@@ -68,4 +69,3 @@ declare global {
     interface RootParamList extends RootStackParamList {}
   }
 }
-
