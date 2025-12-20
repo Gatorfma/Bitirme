@@ -11,6 +11,7 @@ import type { CompositeScreenProps, NavigatorScreenParams } from '@react-navigat
 export type RootStackParamList = {
   Auth: NavigatorScreenParams<AuthStackParamList>;
   Onboarding: undefined;
+  Home: undefined;
   Main: NavigatorScreenParams<MainTabParamList>;
 };
 
@@ -22,7 +23,6 @@ export type AuthStackParamList = {
 
 // Main Tab Navigator param list
 export type MainTabParamList = {
-  Home: undefined;
   JournalHome: undefined;
   MindMap: undefined;
   Stats: undefined;

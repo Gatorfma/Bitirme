@@ -1,6 +1,7 @@
 /**
  * MainTabNavigator
- * Bottom tab navigator for main app screens
+ * Bottom tab navigator for main app screens. 
+ * Home is NOT present here as it is a standalone screen in RootNavigator.
  */
 
 import React from 'react';
@@ -9,7 +10,6 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { MainTabParamList, JournalStackParamList } from '../types/navigation';
 
-import HomeScreen from '../screens/home/HomeScreen';
 import JournalHomeScreen from '../screens/journal/JournalHomeScreen';
 import NewSessionScreen from '../screens/journal/NewSessionScreen';
 import SessionDetailScreen from '../screens/journal/SessionDetailScreen';
@@ -24,7 +24,6 @@ const JournalStack = createNativeStackNavigator<JournalStackParamList>();
 // Tab bar icon component
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = {
-    Home: '🏠',
     JournalHome: '✍️',
     MindMap: '🧠',
     Stats: '📊',
@@ -34,7 +33,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 
   return (
     <View style={[styles.iconContainer, focused && styles.iconContainerActive]}>
-      <Text style={styles.icon}>{icons[name]}</Text>
+      <Text style={styles.icon}>{icons[name] || '❓'}</Text>
     </View>
   );
 }
@@ -67,11 +66,6 @@ export function MainTabNavigator() {
         tabBarLabelStyle: styles.tabLabel,
       })}
     >
-      <Tab.Screen
-        name="Home"
-        component={HomeScreen}
-        options={{ title: 'Home' }}
-      />
       <Tab.Screen
         name="JournalHome"
         component={JournalStackNavigator}
