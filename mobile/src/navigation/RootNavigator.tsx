@@ -12,7 +12,6 @@ import { useAuthStore } from '../state/authStore';
 
 import AuthNavigator from './AuthNavigator';
 import MainTabNavigator from './MainTabNavigator';
-import HomeScreen from '../screens/home/HomeScreen';
 import OnboardingScreen from '../screens/onboarding/OnboardingScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -75,11 +74,8 @@ export function RootNavigator() {
         // Logged in but not onboarded - show onboarding
         <Stack.Screen name="Onboarding" component={OnboardingScreen} />
       ) : (
-        // Logged in and onboarded - show Home first as a standalone screen
-        <>
-          <Stack.Screen name="Home" component={HomeScreen} />
-          <Stack.Screen name="Main" component={MainTabNavigator} />
-        </>
+        // Logged in and onboarded - show main app (Home is now inside the tabs)
+        <Stack.Screen name="Main" component={MainTabNavigator} />
       )}
     </Stack.Navigator>
   );

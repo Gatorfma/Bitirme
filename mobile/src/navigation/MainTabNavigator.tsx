@@ -1,15 +1,16 @@
 /**
  * MainTabNavigator
  * Bottom tab navigator for main app screens. 
- * Home is NOT present here as it is a standalone screen in RootNavigator.
+ * Home is now on the far left and the tab bar is hidden when on the Home screen.
  */
 
 import React from 'react';
-import { StyleSheet, View, Text } from 'react-native';
+import { StyleSheet, View, Text, Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { MainTabParamList, JournalStackParamList } from '../types/navigation';
 
+import HomeScreen from '../screens/home/HomeScreen';
 import JournalHomeScreen from '../screens/journal/JournalHomeScreen';
 import NewSessionScreen from '../screens/journal/NewSessionScreen';
 import SessionDetailScreen from '../screens/journal/SessionDetailScreen';
@@ -24,6 +25,7 @@ const JournalStack = createNativeStackNavigator<JournalStackParamList>();
 // Tab bar icon component
 function TabIcon({ name, focused }: { name: string; focused: boolean }) {
   const icons: Record<string, string> = {
+    Home: '🏠',
     JournalHome: '✍️',
     MindMap: '🧠',
     Stats: '📊',
@@ -33,7 +35,9 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 
   return (
     <View style={[styles.iconContainer, focused && styles.iconContainerActive]}>
-      <Text style={styles.icon}>{icons[name] || '❓'}</Text>
+      <Text style={[styles.icon, name === 'Home' && styles.homeIcon]}>
+        {icons[name] || '❓'}
+      </Text>
     </View>
   );
 }
@@ -57,15 +61,26 @@ function JournalStackNavigator() {
 export function MainTabNavigator() {
   return (
     <Tab.Navigator
+      initialRouteName="Home"
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarIcon: ({ focused }) => <TabIcon name={route.name} focused={focused} />,
         tabBarActiveTintColor: '#5B8A72',
         tabBarInactiveTintColor: '#9DAEBB',
+        tabBarHideOnKeyboard: true,
         tabBarStyle: styles.tabBar,
         tabBarLabelStyle: styles.tabLabel,
+        tabBarItemStyle: styles.tabItem,
       })}
     >
+      <Tab.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{ 
+          title: 'Home',
+          tabBarStyle: { display: 'none' } // Hide tab bar on Home screen
+        }}
+      />
       <Tab.Screen
         name="JournalHome"
         component={JournalStackNavigator}
@@ -100,24 +115,42 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopColor: '#E8ECEB',
     borderTopWidth: 1,
-    height: 85,
-    paddingTop: 8,
-    paddingBottom: 25,
+    height: Platform.OS === 'ios' ? 100 : 85,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 25,
+    paddingTop: 12,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+  },
+  tabItem: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 5,
   },
   tabLabel: {
     fontSize: 11,
     fontWeight: '500',
-    marginTop: 4,
+    marginTop: 2,
+    width: '100%',
+    textAlign: 'center',
   },
   iconContainer: {
-    padding: 6,
-    borderRadius: 10,
+    width: 44,
+    height: 32,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   iconContainerActive: {
     backgroundColor: 'rgba(91, 138, 114, 0.1)',
   },
   icon: {
     fontSize: 22,
+  },
+  homeIcon: {
+    fontSize: 24,
   },
 });
 
