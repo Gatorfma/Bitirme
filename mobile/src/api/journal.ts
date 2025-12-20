@@ -12,6 +12,7 @@ import type {
   AppendThoughtResponse,
 } from '../types';
 import type { JournalSession, Thought } from '../types/models';
+import { fetchSessions, fetchSessionById } from '../journal/supabaseSessionRepo';
 
 // Mock delay to simulate network latency
 const mockDelay = (ms: number = 800) => new Promise(resolve => setTimeout(resolve, ms));
@@ -95,55 +96,54 @@ const guidingQuestions = [
 ];
 
 /**
- * Get all journal sessions
- * Currently returns mock data
+ * Get all journal sessions from Supabase
  */
 export async function getSessions(
   page: number = 1,
   pageSize: number = 10
 ): Promise<ApiResponse<PaginatedResponse<JournalSession>>> {
-  await mockDelay();
-  
-  // In production: api.get<PaginatedResponse<JournalSession>>(`/journal/sessions?page=${page}&pageSize=${pageSize}`)
-  const startIndex = (page - 1) * pageSize;
-  const endIndex = startIndex + pageSize;
-  const items = mockSessions.slice(startIndex, endIndex);
-  
-  return {
-    success: true,
-    data: {
-      items,
-      total: mockSessions.length,
-      page,
-      pageSize,
-      hasMore: endIndex < mockSessions.length,
-    },
-  };
+  try {
+    const result = await fetchSessions(page, pageSize);
+    return {
+      success: true,
+      data: result,
+    };
+  } catch (error) {
+    console.error('[JournalAPI] Error fetching sessions:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch sessions',
+    };
+  }
 }
 
 /**
- * Get a single session by ID
- * Currently returns mock data
+ * Get a single session by ID from Supabase
  */
 export async function getSession(
   sessionId: string
 ): Promise<ApiResponse<JournalSession>> {
-  await mockDelay(500);
-  
-  // In production: api.get<JournalSession>(`/journal/sessions/${sessionId}`)
-  const session = mockSessions.find(s => s.id === sessionId);
-  
-  if (!session) {
+  try {
+    const session = await fetchSessionById(sessionId);
+    
+    if (!session) {
+      return {
+        success: false,
+        error: 'Session not found',
+      };
+    }
+    
+    return {
+      success: true,
+      data: session,
+    };
+  } catch (error) {
+    console.error('[JournalAPI] Error fetching session:', error);
     return {
       success: false,
-      error: 'Session not found',
+      error: error instanceof Error ? error.message : 'Failed to fetch session',
     };
   }
-  
-  return {
-    success: true,
-    data: session,
-  };
 }
 
 /**
