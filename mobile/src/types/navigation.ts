@@ -11,6 +11,7 @@ import type { CompositeScreenProps, NavigatorScreenParams } from '@react-navigat
 export type RootStackParamList = {
   Auth: NavigatorScreenParams<AuthStackParamList>;
   Onboarding: undefined;
+  Home: undefined;
   Main: NavigatorScreenParams<MainTabParamList>;
 };
 
@@ -68,4 +69,3 @@ declare global {
     interface RootParamList extends RootStackParamList {}
   }
 }
-

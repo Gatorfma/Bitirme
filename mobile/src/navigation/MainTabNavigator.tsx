@@ -1,6 +1,7 @@
 /**
  * MainTabNavigator
- * Bottom tab navigator for main app screens
+ * Bottom tab navigator for main app screens. 
+ * Home is NOT present here as it is a standalone screen in RootNavigator.
  */
 
 import React from 'react';
@@ -32,7 +33,7 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
 
   return (
     <View style={[styles.iconContainer, focused && styles.iconContainerActive]}>
-      <Text style={styles.icon}>{icons[name]}</Text>
+      <Text style={styles.icon}>{icons[name] || '❓'}</Text>
     </View>
   );
 }
@@ -121,4 +122,3 @@ const styles = StyleSheet.create({
 });
 
 export default MainTabNavigator;
-

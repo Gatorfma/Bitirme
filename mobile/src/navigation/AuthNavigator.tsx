@@ -15,6 +15,7 @@ const Stack = createNativeStackNavigator<AuthStackParamList>();
 export function AuthNavigator() {
   return (
     <Stack.Navigator
+      initialRouteName="Login"
       screenOptions={{
         headerShown: false,
         contentStyle: { backgroundColor: '#FAFBFC' },
@@ -28,4 +29,3 @@ export function AuthNavigator() {
 }
 
 export default AuthNavigator;
-
