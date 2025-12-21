@@ -66,7 +66,7 @@ export function RootNavigator() {
         contentStyle: { backgroundColor: '#FAFBFC' },
         animation: 'fade',
       }}
-      initialRouteName={!isAuthenticated ? 'Auth' : !isOnboarded ? 'Onboarding' : 'Home'}
+      initialRouteName={!isAuthenticated ? 'Auth' : !isOnboarded ? 'Onboarding' : 'Main'}
     >
       {!isAuthenticated ? (
         // Not logged in - show auth screens
