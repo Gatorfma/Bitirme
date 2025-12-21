@@ -45,10 +45,10 @@ const CalendarView = ({ viewDate, onPrevMonth, onNextMonth }: any) => {
   const today = new Date();
   const monthName = viewDate.toLocaleString('default', { month: 'long' });
   const year = viewDate.getFullYear();
-  
+
   const firstDayOfMonth = (new Date(year, viewDate.getMonth(), 1).getDay() + 6) % 7;
   const daysInMonth = new Date(year, viewDate.getMonth() + 1, 0).getDate();
-  
+
   const days = [];
   for (let i = 0; i < firstDayOfMonth; i++) {
     days.push(null);
@@ -61,8 +61,8 @@ const CalendarView = ({ viewDate, onPrevMonth, onNextMonth }: any) => {
   }
 
   const isToday = (day: number | null) => {
-    return day === today.getDate() && 
-           viewDate.getMonth() === today.getMonth() && 
+    return day === today.getDate() &&
+           viewDate.getMonth() === today.getMonth() &&
            viewDate.getFullYear() === today.getFullYear();
   };
 
@@ -90,7 +90,7 @@ const CalendarView = ({ viewDate, onPrevMonth, onNextMonth }: any) => {
           <TouchableOpacity onPress={onPrevMonth} style={styles.navButton}>
             <Text style={styles.navButtonText}>◀</Text>
           </TouchableOpacity>
-          
+
           <View style={styles.headerTitleContainer}>
             <Text style={styles.calendarMonthText}>{monthName.toUpperCase()}</Text>
             <Text style={styles.calendarYearText}>{year}</Text>
@@ -100,7 +100,7 @@ const CalendarView = ({ viewDate, onPrevMonth, onNextMonth }: any) => {
             <Text style={styles.navButtonText}>▶</Text>
           </TouchableOpacity>
         </View>
-        
+
         <View style={styles.calendarBody}>
           <View style={styles.weekDaysRow}>
             {weekDays.map((day, index) => (
@@ -278,10 +278,10 @@ export default function HomeScreen() {
           <Text style={styles.userName}>Hello, {user?.name || 'Friend'}</Text>
         </View>
 
-        <CalendarView 
-          viewDate={viewDate} 
-          onPrevMonth={handlePrevMonth} 
-          onNextMonth={handleNextMonth} 
+        <CalendarView
+          viewDate={viewDate}
+          onPrevMonth={handlePrevMonth}
+          onNextMonth={handleNextMonth}
         />
 
         {/* Streak Indicator */}
