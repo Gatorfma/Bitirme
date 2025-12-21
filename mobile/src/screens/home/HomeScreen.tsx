@@ -10,6 +10,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { useAuthStore } from '../../state/authStore';
 import { PrimaryButton } from '../../components/common';
+import { useStatsOverview } from '../../hooks/useStats';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -44,10 +45,10 @@ const CalendarView = ({ viewDate, onPrevMonth, onNextMonth }: any) => {
   const today = new Date();
   const monthName = viewDate.toLocaleString('default', { month: 'long' });
   const year = viewDate.getFullYear();
-  
+
   const firstDayOfMonth = (new Date(year, viewDate.getMonth(), 1).getDay() + 6) % 7;
   const daysInMonth = new Date(year, viewDate.getMonth() + 1, 0).getDate();
-  
+
   const days = [];
   for (let i = 0; i < firstDayOfMonth; i++) {
     days.push(null);
@@ -60,8 +61,8 @@ const CalendarView = ({ viewDate, onPrevMonth, onNextMonth }: any) => {
   }
 
   const isToday = (day: number | null) => {
-    return day === today.getDate() && 
-           viewDate.getMonth() === today.getMonth() && 
+    return day === today.getDate() &&
+           viewDate.getMonth() === today.getMonth() &&
            viewDate.getFullYear() === today.getFullYear();
   };
 
@@ -89,7 +90,7 @@ const CalendarView = ({ viewDate, onPrevMonth, onNextMonth }: any) => {
           <TouchableOpacity onPress={onPrevMonth} style={styles.navButton}>
             <Text style={styles.navButtonText}>◀</Text>
           </TouchableOpacity>
-          
+
           <View style={styles.headerTitleContainer}>
             <Text style={styles.calendarMonthText}>{monthName.toUpperCase()}</Text>
             <Text style={styles.calendarYearText}>{year}</Text>
@@ -99,7 +100,7 @@ const CalendarView = ({ viewDate, onPrevMonth, onNextMonth }: any) => {
             <Text style={styles.navButtonText}>▶</Text>
           </TouchableOpacity>
         </View>
-        
+
         <View style={styles.calendarBody}>
           <View style={styles.weekDaysRow}>
             {weekDays.map((day, index) => (
@@ -140,10 +141,19 @@ export default function HomeScreen() {
   const navigation = useNavigation<any>();
   const isFocused = useIsFocused();
   const { user, token } = useAuthStore();
+  const { data: stats } = useStatsOverview('week');
   const frameId = useRef<number | null>(null);
+  const scrollRef = useRef<ScrollView>(null);
   const hasShownPopup = useRef(false);
   const [isPopupVisible, setIsPopupVisible] = useState(false);
   const [viewDate, setViewDate] = useState(new Date());
+
+  // Scroll to top whenever the screen becomes focused
+  useEffect(() => {
+    if (isFocused) {
+      scrollRef.current?.scrollTo({ y: 0, animated: false });
+    }
+  }, [isFocused]);
 
   // Only show popup when screen becomes focused and user is definitely logged in
   useEffect(() => {
@@ -258,6 +268,7 @@ export default function HomeScreen() {
       </Modal>
 
       <ScrollView
+        ref={scrollRef}
         style={styles.contentLayer}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -267,11 +278,19 @@ export default function HomeScreen() {
           <Text style={styles.userName}>Hello, {user?.name || 'Friend'}</Text>
         </View>
 
-        <CalendarView 
-          viewDate={viewDate} 
-          onPrevMonth={handlePrevMonth} 
-          onNextMonth={handleNextMonth} 
+        <CalendarView
+          viewDate={viewDate}
+          onPrevMonth={handlePrevMonth}
+          onNextMonth={handleNextMonth}
         />
+
+        {/* Streak Indicator */}
+        <View style={styles.streakContainer}>
+          <Text style={styles.streakLabel}>CURRENT STREAK</Text>
+          <Text style={styles.streakValue}>
+            {stats?.currentStreak ?? 0} <Text style={styles.streakEmoji}>🔥</Text>
+          </Text>
+        </View>
 
         <View style={styles.menuContainer}>
           <MenuButton
@@ -321,7 +340,7 @@ const styles = StyleSheet.create({
   userName: { fontSize: 32, fontWeight: 'bold', color: '#FFFFFF', marginTop: 8 },
 
   calendarContainer: {
-    marginBottom: 32,
+    marginBottom: 20,
     alignItems: 'center',
     width: '100%',
   },
@@ -454,6 +473,32 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: 'rgba(255, 215, 0, 1)',
     zIndex: -1,
+  },
+
+  // Streak Styles
+  streakContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 32,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  streakLabel: {
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 1,
+    marginBottom: 4,
+  },
+  streakValue: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  streakEmoji: {
+    fontSize: 24,
   },
 
   modalOverlay: {
