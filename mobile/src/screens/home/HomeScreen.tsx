@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Modal } from 'react-native';
 import { GLView } from 'expo-gl';
 import { StatusBar } from 'expo-status-bar';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useIsFocused } from '@react-navigation/native';
 import { useAuthStore } from '../../state/authStore';
 import { PrimaryButton } from '../../components/common';
 
@@ -45,20 +45,16 @@ const CalendarView = ({ viewDate, onPrevMonth, onNextMonth }: any) => {
   const monthName = viewDate.toLocaleString('default', { month: 'long' });
   const year = viewDate.getFullYear();
   
-  // Calculate first day of month and adjust for Monday start
   const firstDayOfMonth = (new Date(year, viewDate.getMonth(), 1).getDay() + 6) % 7;
   const daysInMonth = new Date(year, viewDate.getMonth() + 1, 0).getDate();
   
   const days = [];
-  // Leading empty slots
   for (let i = 0; i < firstDayOfMonth; i++) {
     days.push(null);
   }
-  // Days of the month
   for (let i = 1; i <= daysInMonth; i++) {
     days.push(i);
   }
-  // Trailing empty slots to always have 6 rows (42 cells)
   while (days.length < 42) {
     days.push(null);
   }
@@ -79,7 +75,6 @@ const CalendarView = ({ viewDate, onPrevMonth, onNextMonth }: any) => {
 
   return (
     <View style={styles.calendarContainer}>
-      {/* Binder Rings */}
       <View style={styles.calendarRings}>
         {[1, 2, 3, 4, 5, 6, 7].map(i => (
           <View key={i} style={styles.ringContainer}>
@@ -90,7 +85,6 @@ const CalendarView = ({ viewDate, onPrevMonth, onNextMonth }: any) => {
       </View>
 
       <View style={styles.calendarPaper}>
-        {/* Header Bar with Navigation Buttons */}
         <View style={styles.calendarTopBar}>
           <TouchableOpacity onPress={onPrevMonth} style={styles.navButton}>
             <Text style={styles.navButtonText}>◀</Text>
@@ -144,10 +138,23 @@ const CalendarView = ({ viewDate, onPrevMonth, onNextMonth }: any) => {
 
 export default function HomeScreen() {
   const navigation = useNavigation<any>();
-  const { user } = useAuthStore();
+  const isFocused = useIsFocused();
+  const { user, token } = useAuthStore();
   const frameId = useRef<number | null>(null);
-  const [isPopupVisible, setIsPopupVisible] = useState(true);
+  const hasShownPopup = useRef(false);
+  const [isPopupVisible, setIsPopupVisible] = useState(false);
   const [viewDate, setViewDate] = useState(new Date());
+
+  // Only show popup when screen becomes focused and user is definitely logged in
+  useEffect(() => {
+    if (isFocused && token && !hasShownPopup.current) {
+      const timer = setTimeout(() => {
+        setIsPopupVisible(true);
+        hasShownPopup.current = true;
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isFocused, token]);
 
   const handlePrevMonth = () => {
     setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
@@ -217,7 +224,8 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar hidden />
+      {/* Only hide status bar when this specific screen is visible */}
+      {isFocused && <StatusBar hidden />}
 
       <GLView style={styles.canvas} onContextCreate={onContextCreate} />
 
@@ -304,6 +312,7 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1A2633' },
+  canvasContainer: { ...StyleSheet.absoluteFillObject },
   canvas: { ...StyleSheet.absoluteFillObject },
   contentLayer: { flex: 1 },
   scrollContent: { padding: 24, paddingTop: 60, paddingBottom: 40 },
@@ -311,7 +320,6 @@ const styles = StyleSheet.create({
   welcomeText: { fontSize: 16, color: 'rgba(255,255,255,0.6)', fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase' },
   userName: { fontSize: 32, fontWeight: 'bold', color: '#FFFFFF', marginTop: 8 },
 
-  // Stylized Physical Calendar Styles
   calendarContainer: {
     marginBottom: 32,
     alignItems: 'center',
@@ -444,11 +452,10 @@ const styles = StyleSheet.create({
   starIcon: {
     position: 'absolute',
     fontSize: 24,
-    color: 'rgba(255, 215, 0, 1)', // Gold with 40% opacity
+    color: 'rgba(255, 215, 0, 1)',
     zIndex: -1,
   },
 
-  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
