@@ -3,7 +3,7 @@
  * Chat-like journaling interface
  */
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import type { JournalStackScreenProps } from '../../types/navigation';
 
@@ -22,6 +22,15 @@ import { MessageBubble, QuestionBubble } from '../../components/journal';
 import { PrimaryButton } from '../../components/common';
 import { useCreateSession } from '../../hooks/useJournal';
 import type { ChatMessage } from '../../types/models';
+import { getJournalAssistantReply } from '../../api/openaiChat';
+import { retrieve } from '../../rag/inMemoryRag';
+import { updateSlotsFromUserText, computeMissingSlots, type Slots } from '../../journal/slots';
+import { createSession, updateSession, deleteSession, hasUserMessages } from '../../journal/supabaseSessionRepo';
+import { summarizeAndExtractThoughts } from '../../agents/journalingPostProcessor';
+import { updateSessionSummaryAndThoughts } from '../../repos/journalSessionsRepo';
+import { insertThoughtItems } from '../../repos/thoughtItemsRepo';
+import { runCategorizationForSession } from '../../agents/categorizationPipeline';
+import { supabase } from '../../lib/supabase';
 
 type NavigationProp = JournalStackScreenProps<'NewSession'>['navigation'];
 
@@ -45,6 +54,12 @@ export default function NewSessionScreen() {
   const createSessionMutation = useCreateSession();
   const flatListRef = useRef<FlatList>(null);
 
+  // Session tracking
+  const [sessionId] = useState(() => `session_${Date.now()}_${Math.random().toString(36).substring(7)}`);
+  const [sessionStartedAt] = useState(() => new Date());
+  const supabaseSessionIdRef = useRef<string | null>(null);
+  const hasCreatedSessionRef = useRef(false);
+
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: '1',
@@ -55,10 +70,185 @@ export default function NewSessionScreen() {
   ]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [slots, setSlots] = useState<Slots>({});
 
   const userThoughts = messages.filter(m => m.type === 'user');
 
-  const sendMessage = useCallback(() => {
+  // Ensure Supabase session exists (create if needed)
+  const ensureSupabaseSession = useCallback(async () => {
+    if (hasCreatedSessionRef.current && supabaseSessionIdRef.current) {
+      return; // Already created
+    }
+
+    try {
+      const result = await createSession({
+        startedAt: sessionStartedAt.toISOString(),
+      });
+      supabaseSessionIdRef.current = result.id;
+      hasCreatedSessionRef.current = true;
+      console.log('[NewSession] Supabase session created:', result.id);
+    } catch (error) {
+      console.error('[NewSession] Failed to create Supabase session:', error);
+      // Don't throw - non-blocking
+    }
+  }, [sessionStartedAt]);
+
+  // Update Supabase session (non-blocking)
+  const updateSupabaseSession = useCallback(async (currentMessages: ChatMessage[], endedAt?: string) => {
+    if (!supabaseSessionIdRef.current) {
+      // Try to create session first if it doesn't exist
+      await ensureSupabaseSession();
+    }
+
+    if (!supabaseSessionIdRef.current) {
+      console.warn('[NewSession] Cannot update session - no Supabase session ID');
+      return;
+    }
+
+    // Check if session has user messages
+    const hasUserMsgs = hasUserMessages(currentMessages);
+    
+    // Fire and forget - don't block UI
+    (async () => {
+      try {
+        if (!hasUserMsgs) {
+          // Delete empty session instead of updating
+          console.log('[NewSession] Session has no user messages, deleting empty session');
+          await deleteSession(supabaseSessionIdRef.current!);
+          supabaseSessionIdRef.current = null;
+          hasCreatedSessionRef.current = false;
+        } else {
+          await updateSession({
+            id: supabaseSessionIdRef.current!,
+            messages: currentMessages,
+            endedAt,
+          });
+        }
+      } catch (error) {
+        console.error('[NewSession] Failed to update/delete Supabase session:', error);
+        // Don't throw - non-blocking
+      }
+    })();
+  }, [ensureSupabaseSession]);
+
+  // Post-process session: summarize and extract thoughts (non-blocking)
+  const postProcessSession = useCallback(async (currentMessages: ChatMessage[]) => {
+    if (!supabaseSessionIdRef.current) {
+      console.warn('[NewSession] Cannot post-process - no Supabase session ID');
+      return;
+    }
+
+    // Check if session has user messages
+    if (!hasUserMessages(currentMessages)) {
+      console.log('[NewSession] Skipping post-processing - no user messages');
+      return;
+    }
+
+    // Fire and forget - don't block UI
+    (async () => {
+      try {
+        // Check if session has already been post-processed
+        const { data: sessionData, error: fetchError } = await supabase
+          .from('journal_sessions')
+          .select('post_processed_at')
+          .eq('id', supabaseSessionIdRef.current!)
+          .single();
+
+        if (fetchError) {
+          console.error('[NewSession] Error checking post_processed_at:', {
+            sessionId: supabaseSessionIdRef.current,
+            error: fetchError.message,
+          });
+          // Continue anyway - don't block on this check
+        } else if (sessionData?.post_processed_at) {
+          console.log('[NewSession] Session already post-processed, skipping:', {
+            sessionId: supabaseSessionIdRef.current,
+            post_processed_at: sessionData.post_processed_at,
+          });
+          return;
+        }
+
+        // Convert messages to format expected by post-processor
+        const messagesForProcessing = currentMessages
+          .filter((msg) => msg.type === 'user' || msg.type === 'question')
+          .map((msg) => ({
+            role: (msg.type === 'user' ? 'user' : 'agent') as 'user' | 'agent',
+            content: msg.content,
+            timestamp: msg.timestamp,
+          }));
+
+        console.log('[NewSession] Post-processing session:', {
+          sessionId: supabaseSessionIdRef.current,
+          messageCount: messagesForProcessing.length,
+        });
+
+        // Step 1: Summarize and extract thoughts
+        const { summary, thoughts } = await summarizeAndExtractThoughts({
+          messages: messagesForProcessing,
+        });
+
+        console.log('[NewSession] Post-processing results:', {
+          summaryLength: summary.length,
+          thoughtCount: thoughts.length,
+        });
+
+        // Step 2: Update session summary and thoughts, and set post_processed_at
+        await updateSessionSummaryAndThoughts({
+          sessionId: supabaseSessionIdRef.current!,
+          summary,
+          thoughts,
+          setPostProcessedAt: true,
+        });
+
+        // Step 3: Insert thought items
+        await insertThoughtItems({
+          sessionId: supabaseSessionIdRef.current!,
+          thoughts: thoughts.map((t) => ({
+            text: t.text,
+            timestamp: t.timestamp,
+          })),
+        });
+
+        console.log('[NewSession] Post-processing completed successfully');
+
+        // Step 4: Run categorization pipeline (fire-and-forget)
+        if (supabaseSessionIdRef.current) {
+          runCategorizationForSession(supabaseSessionIdRef.current).catch((error) => {
+            console.error('[NewSession] Failed to run categorization pipeline:', error);
+          });
+        }
+      } catch (error) {
+        console.error('[NewSession] Failed to post-process session:', error);
+        // Don't throw - non-blocking
+      }
+    })();
+  }, []);
+
+  // Save on unmount
+  useEffect(() => {
+    return () => {
+      // Update session with endedAt on unmount (non-blocking)
+      if (supabaseSessionIdRef.current) {
+        updateSupabaseSession(messages, new Date().toISOString());
+        postProcessSession(messages);
+      }
+    };
+  }, [messages, updateSupabaseSession, postProcessSession]);
+
+  // Save on back navigation (when screen loses focus)
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        // Screen is losing focus (navigating away)
+        if (supabaseSessionIdRef.current) {
+          updateSupabaseSession(messages, new Date().toISOString());
+          postProcessSession(messages);
+        }
+      };
+    }, [messages, updateSupabaseSession, postProcessSession])
+  );
+
+  const sendMessage = useCallback(async () => {
     if (!inputText.trim()) return;
 
     // Add user message
@@ -73,23 +263,97 @@ export default function NewSessionScreen() {
     setInputText('');
     setIsTyping(true);
 
-    // Simulate AI response (would be real API call in production)
-    setTimeout(() => {
-      const randomQuestion = FOLLOW_UP_QUESTIONS[Math.floor(Math.random() * FOLLOW_UP_QUESTIONS.length)];
+    // Ensure Supabase session exists (create on first message)
+    await ensureSupabaseSession();
+
+    try {
+      // Get updated messages with the new user message
+      const updatedMessages = [...messages, userMessage];
+      const userText = userMessage.content;
+
+      // Update slots from user text
+      const updatedSlots = updateSlotsFromUserText(slots, userText);
+      setSlots(updatedSlots);
+      const missingSlots = computeMissingSlots(updatedSlots);
+
+      // Build slot hint
+      const knownParts: string[] = [];
+      if (updatedSlots.situation) knownParts.push(`situation=${updatedSlots.situation.substring(0, 50)}...`);
+      if (updatedSlots.trigger) knownParts.push(`trigger=${updatedSlots.trigger.substring(0, 50)}...`);
+      if (updatedSlots.thought) knownParts.push(`thought=${updatedSlots.thought.substring(0, 50)}...`);
+      if (updatedSlots.emotions) knownParts.push(`emotions=${updatedSlots.emotions}`);
+      if (updatedSlots.intensity) knownParts.push(`intensity=${updatedSlots.intensity}`);
+
+      let slotHint: string | undefined;
+      if (knownParts.length > 0 || missingSlots.length > 0) {
+        const knownStr = knownParts.length > 0 ? `Known so far: ${knownParts.join(', ')}\n` : '';
+        const missingStr = missingSlots.length > 0 ? `Missing information: ${missingSlots.join(', ')}\n` : '';
+        slotHint = `${knownStr}${missingStr}Ask ONE contextually relevant question about the missing information that relates to what the user just shared. Reference specific details from their message.`;
+      }
+
+      // Retrieve RAG context (gracefully handle failures)
+      let ragContext: string | undefined;
+      try {
+        const hits = await retrieve(userText, 4);
+        console.log('[RAG] topHits:', hits.map((h) => ({
+          id: h.id,
+          score: h.score.toFixed(4),
+        })));
+
+        // Build ragContext string with ~300 char limit per snippet
+        const contextParts = hits.map((hit) => {
+          const truncated = hit.text.length > 300
+            ? hit.text.substring(0, 297) + '...'
+            : hit.text;
+          return `[${hit.id} score=${hit.score.toFixed(2)}] ${truncated}`;
+        });
+        ragContext = contextParts.join('\n');
+      } catch (ragError) {
+        console.error('[NewSession] RAG retrieval failed, continuing without context:', ragError);
+        // Continue without RAG context
+      }
+
+      console.log('[NewSession] Calling OpenAI API with', updatedMessages.length, 'messages');
+      const aiReply = await getJournalAssistantReply(updatedMessages, ragContext, slotHint);
+      console.log('[NewSession] Received AI reply:', aiReply.substring(0, 50) + '...');
+      
       const aiMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         type: 'question',
-        content: randomQuestion,
+        content: aiReply,
         timestamp: new Date().toISOString(),
       };
+      const updatedMessagesWithReply = [...updatedMessages, aiMessage];
       setMessages(prev => [...prev, aiMessage]);
+
+      // Autosave to Supabase after agent reply (non-blocking)
+      updateSupabaseSession(updatedMessagesWithReply);
+    } catch (error) {
+      console.error('[NewSession] Failed to get AI response:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[NewSession] Error details:', errorMessage);
+      const fallbackMessage: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        type: 'question',
+        content: "Sorry — I couldn't respond right now. Please try again.",
+        timestamp: new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, fallbackMessage]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
-  }, [inputText]);
+    }
+  }, [inputText, messages]);
+
+  const handleBack = useCallback(() => {
+    // Update session with endedAt before navigating (non-blocking)
+    updateSupabaseSession(messages, new Date().toISOString());
+    postProcessSession(messages);
+    navigation.goBack();
+  }, [navigation, messages, updateSupabaseSession, postProcessSession]);
 
   const handleEndSession = async () => {
     if (userThoughts.length === 0) {
-      navigation.goBack();
+      handleBack();
       return;
     }
 
@@ -101,9 +365,17 @@ export default function NewSessionScreen() {
         })),
         mood: 6, // Would be set by user in a real app
       });
+      
+      // Update Supabase session with endedAt (non-blocking)
+      updateSupabaseSession(messages, new Date().toISOString());
+      postProcessSession(messages);
+      
       navigation.goBack();
     } catch (error) {
       console.error('Failed to save session:', error);
+      // Still update Supabase even if API call failed
+      updateSupabaseSession(messages, new Date().toISOString());
+      postProcessSession(messages);
     }
   };
 
@@ -118,7 +390,7 @@ export default function NewSessionScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={handleBack}>
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>New Session</Text>
