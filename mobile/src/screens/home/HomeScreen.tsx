@@ -66,8 +66,16 @@ const CalendarView = ({ viewDate, onPrevMonth, onNextMonth }: any) => {
            viewDate.getFullYear() === today.getFullYear();
   };
 
-  const hasStar = (day: number | null) => {
+  const isFutureDate = (day: number | null) => {
     if (!day) return false;
+    const dateToCheck = new Date(year, viewDate.getMonth(), day);
+    // Standardize both to midnight for accurate comparison
+    const compareToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    return dateToCheck > compareToday;
+  };
+
+  const hasStar = (day: number | null) => {
+    if (!day || isFutureDate(day)) return false;
     const hash = (day * 127 + viewDate.getMonth() * 31 + viewDate.getFullYear()) % 10;
     return hash < 8;
   };
