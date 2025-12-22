@@ -370,15 +370,16 @@ function generateMindMapNodes(categories: ThoughtCategory[]): MindMapNode[] {
   
   // Equal spacing: 360 / number of categories
   const angleStep = (2 * Math.PI) / categories.length;
-  const radius = 140;
 
   const categoryNodes: MindMapNode[] = categories.map((cat, index) => {
     const angle = index * angleStep;
+    const radius = 140;
+
     const x = 200 + radius * Math.cos(angle);
     const y = 200 + radius * Math.sin(angle);
     
     // Proportional size based on thought count (scaled between 30 and 70)
-    const size = 30 + (cat.thoughtCount / maxThoughts) * 40;
+    const size = 30 + (cat.thoughtCount / maxThoughts) * 100;
 
     return {
       id: cat.id,
