@@ -1,9 +1,3 @@
-/**
- * AvatarSessionScreen
- * Split-screen interface with WebGL Atmosphere, Speech-to-Text (Whisper), and Text-to-Speech.
- * Optimised for responsiveness with non-blocking database saves.
- */
-
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
@@ -12,7 +6,6 @@ import {
   TouchableOpacity,
   Dimensions,
   Animated,
-  SafeAreaView,
   Alert,
 } from 'react-native';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
@@ -23,17 +16,12 @@ import * as Speech from 'expo-speech';
 
 import type { ChatMessage } from '../../types/models';
 import { getJournalAssistantReply } from '../../api/openaiChat';
-import { createSession, updateSession, deleteSession, hasUserMessages } from '../../journal/supabaseSessionRepo';
-import { summarizeAndExtractThoughts } from '../../agents/journalingPostProcessor';
-import { updateSessionSummaryAndThoughts } from '../../repos/journalSessionsRepo';
-import { insertThoughtItems } from '../../repos/thoughtItemsRepo';
-import { runCategorizationForSession } from '../../agents/categorizationPipeline';
-import { useAuthStore } from '../../state/authStore';
+import { createSession, updateSession, deleteSession } from '../../journal/supabaseSessionRepo';
 import { useCreateSession } from '../../hooks/useJournal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// --- WebGL Shaders (Stylized Humanoid Avatar) ---
+// --- WebGL Shaders (Blinking Black Eyes, Happy Smile, Head Bobbing) ---
 const vertSource = `
   attribute vec2 position;
   void main() {
@@ -46,11 +34,7 @@ const fragSource = `
   uniform float time;
   uniform vec2 resolution;
   uniform float uIsTalking;
-
-  float circle(vec2 uv, vec2 center, float radius, float blur) {
-    float d = distance(uv, center);
-    return smoothstep(radius, radius - blur, d);
-  }
+  uniform float uIsRecording;
 
   float ellipse(vec2 uv, vec2 center, float rx, float ry, float blur) {
     vec2 p = (uv - center) / vec2(rx, ry);
@@ -65,27 +49,52 @@ const fragSource = `
     p.x *= aspect;
     vec2 center = vec2(0.5 * aspect, 0.5);
 
-    vec3 color1 = vec3(0.35, 0.54, 0.45);
-    vec3 color2 = vec3(0.1, 0.15, 0.2);
-    float bgDist = distance(uv, vec2(0.5 + sin(time * 0.3) * 0.1, 0.5 + cos(time * 0.5) * 0.1));
-    vec3 color = mix(color1, color2, bgDist);
+    vec3 bgColor = vec3(0.82, 0.85, 0.88);
+    vec3 silhouetteColor = vec3(0.39, 0.45, 0.55);
+    vec3 eyeColor = vec3(0.05, 0.05, 0.05);
 
-    float head = ellipse(p, center, 0.25, 0.35, 0.01);
-    vec3 skinColor = vec3(0.85, 0.75, 0.65);
-    color = mix(color, skinColor, head);
+    // Head Bobbing Logic
+    float bob = uIsRecording * 0.012 * sin(time * 8.0);
+    vec2 headPos = center + vec2(0.0, 0.1 + bob);
 
-    float blink = step(0.05, fract(time * 0.2));
-    float eyeSize = 0.02 * blink;
-    float eyeL = circle(p, center + vec2(-0.08, 0.08), eyeSize, 0.005);
-    float eyeR = circle(p, center + vec2(0.08, 0.08), eyeSize, 0.005);
-    color = mix(color, vec3(0.1), eyeL + eyeR);
+    // Body Masks
+    float head = ellipse(p, headPos, 0.16, 0.22, 0.005);
+    float torso = ellipse(p, center + vec2(0.0, -0.6), 0.42, 0.45, 0.005);
+    float avatarMask = max(head, torso);
+    vec3 finalColor = mix(bgColor, silhouetteColor, avatarMask);
 
-    float mouthOpen = uIsTalking * (0.04 + 0.04 * sin(time * 12.0));
-    float mouthHeight = 0.01 + mouthOpen;
-    float mouth = ellipse(p, center + vec2(0.0, -0.12), 0.08, mouthHeight, 0.005);
-    color = mix(color, vec3(0.3, 0.1, 0.1), mouth);
+    // --- Black Eyes & Blinking ---
+    float blink = step(0.97, sin(time * 0.5) * sin(time * 2.2));
+    float eyeOpenness = 1.0 - (blink * 0.9);
 
-    gl_FragColor = vec4(color, 1.0);
+    vec2 lEyeP = headPos + vec2(-0.06, 0.05);
+    vec2 rEyeP = headPos + vec2(0.06, 0.05);
+
+    float eyes = max(
+      ellipse(p, lEyeP, 0.012, 0.012 * eyeOpenness, 0.005),
+      ellipse(p, rEyeP, 0.012, 0.012 * eyeOpenness, 0.005)
+    );
+    finalColor = mix(finalColor, eyeColor, eyes);
+
+    // --- Mouth Logic (Happy Smile & Talking) ---
+    vec2 mouthCoord = p - (headPos - vec2(0.0, 0.08));
+    float mouthMask = 0.0;
+
+    if (uIsTalking > 0.5) {
+      // Talking: Animating Ellipse
+      float talkOpen = 0.015 * sin(time * 18.0) + 0.015;
+      mouthMask = ellipse(p, headPos - vec2(0.0, 0.08), 0.045, talkOpen, 0.005);
+    } else {
+      // Smile: Flipped parabola for happy face
+      float smileLine = mouthCoord.y - (mouthCoord.x * mouthCoord.x * 12.0);
+      float smileDist = abs(smileLine + 0.015);
+      if (abs(mouthCoord.x) < 0.045) {
+         mouthMask = smoothstep(0.004, 0.001, smileDist);
+      }
+    }
+
+    finalColor = mix(finalColor, silhouetteColor * 0.4, mouthMask);
+    gl_FragColor = vec4(finalColor, 1.0);
   }
 `;
 
@@ -93,11 +102,13 @@ export default function AvatarSessionScreen() {
   const navigation = useNavigation<any>();
   const isFocused = useIsFocused();
   const createSessionMutation = useCreateSession();
-  
+
   const [status, setStatus] = useState<'idle' | 'recording' | 'processing' | 'speaking'>('idle');
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const frameId = useRef<number | null>(null);
+
   const isTalkingRef = useRef(0.0);
+  const isRecordingRef = useRef(0.0);
 
   const recordingRef = useRef<Audio.Recording | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -108,38 +119,51 @@ export default function AvatarSessionScreen() {
 
   useEffect(() => {
     isTalkingRef.current = status === 'speaking' ? 1.0 : 0.0;
+    isRecordingRef.current = status === 'recording' ? 1.0 : 0.0;
   }, [status]);
 
   const onContextCreate = (gl: any) => {
     if (frameId.current) cancelAnimationFrame(frameId.current);
+
     const vert = gl.createShader(gl.VERTEX_SHADER);
     gl.shaderSource(vert, vertSource);
     gl.compileShader(vert);
+
     const frag = gl.createShader(gl.FRAGMENT_SHADER);
     gl.shaderSource(frag, fragSource);
     gl.compileShader(frag);
+
     const program = gl.createProgram();
     gl.attachShader(program, vert);
     gl.attachShader(program, frag);
     gl.linkProgram(program);
     gl.useProgram(program);
+
     const buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     const verts = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
     gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
+
     const positionAttrib = gl.getAttribLocation(program, 'position');
     gl.enableVertexAttribArray(positionAttrib);
     gl.vertexAttribPointer(positionAttrib, 2, gl.FLOAT, false, 0, 0);
+
     const timeUniform = gl.getUniformLocation(program, 'time');
     const resUniform = gl.getUniformLocation(program, 'resolution');
     const talkingUniform = gl.getUniformLocation(program, 'uIsTalking');
+    const recordingUniform = gl.getUniformLocation(program, 'uIsRecording');
+
     let startTime = Date.now();
+
     const render = () => {
       const now = Date.now();
       const elapsed = (now - startTime) / 1000;
+
       gl.uniform1f(timeUniform, elapsed);
       gl.uniform2f(resUniform, gl.drawingBufferWidth, gl.drawingBufferHeight);
       gl.uniform1f(talkingUniform, isTalkingRef.current);
+      gl.uniform1f(recordingUniform, isRecordingRef.current);
+
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       gl.endFrameEXP();
@@ -160,8 +184,8 @@ export default function AvatarSessionScreen() {
     if (status === 'recording') {
       Animated.loop(
         Animated.sequence([
-          Animated.timing(pulseAnim, { toValue: 1.2, duration: 500, useNativeDriver: true }),
-          Animated.timing(pulseAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1.1, duration: 600, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
         ])
       ).start();
     } else {
@@ -170,16 +194,6 @@ export default function AvatarSessionScreen() {
     }
   }, [status]);
 
-  const ensureSupabaseSession = async () => {
-    if (supabaseSessionIdRef.current) return;
-    try {
-      const result = await createSession({ startedAt: new Date().toISOString() });
-      supabaseSessionIdRef.current = result.id;
-    } catch (err) {
-      console.error('[Avatar] Failed to create session:', err);
-    }
-  };
-
   async function startRecording() {
     if (isStartingRecording.current || recordingRef.current || status !== 'idle') return;
     try {
@@ -187,16 +201,19 @@ export default function AvatarSessionScreen() {
       const permission = await Audio.requestPermissionsAsync();
       if (permission.status !== 'granted') {
         Alert.alert('Permission needed', 'Please allow microphone access.');
-        isStartingRecording.current = false;
         return;
       }
       await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
       const { recording } = await Audio.Recording.createAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
       recordingRef.current = recording;
       setStatus('recording');
-      ensureSupabaseSession(); // Fire and forget
+
+      if (!supabaseSessionIdRef.current) {
+        const result = await createSession({ startedAt: new Date().toISOString() });
+        supabaseSessionIdRef.current = result.id;
+      }
     } catch (err) {
-      console.error('[Avatar] Failed to start recording', err);
+      console.error('[Avatar] Start recording failed', err);
       setStatus('idle');
     } finally {
       isStartingRecording.current = false;
@@ -208,29 +225,47 @@ export default function AvatarSessionScreen() {
     const recording = recordingRef.current;
     recordingRef.current = null;
     setStatus('processing');
+
     try {
       await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
-      if (!uri) throw new Error('No recording URI returned');
+      if (!uri) throw new Error('No URI');
+
       const transcription = await transcribeWithWhisper(uri);
+
       if (!transcription || transcription.trim().length < 2) {
         setStatus('idle');
         return;
       }
+
       const userMessage: ChatMessage = { id: Date.now().toString(), type: 'user', content: transcription, timestamp: new Date().toISOString() };
       const updatedMessages = [...messages, userMessage];
       setMessages(updatedMessages);
+
       const aiReply = await getJournalAssistantReply(updatedMessages);
+
       const aiMessage: ChatMessage = { id: (Date.now() + 1).toString(), type: 'question', content: aiReply, timestamp: new Date().toISOString() };
       const finalMessages = [...updatedMessages, aiMessage];
       setMessages(finalMessages);
+
       if (supabaseSessionIdRef.current) {
-        updateSession({ id: supabaseSessionIdRef.current, messages: finalMessages }).catch(e => console.error(e));
+        updateSession({ id: supabaseSessionIdRef.current, messages: finalMessages }).catch(e => console.error('[Avatar] BG save failed:', e));
       }
-      setStatus('speaking');
-      Speech.speak(aiReply, { onDone: () => setStatus('idle'), onError: () => setStatus('idle') });
+
+      // Voice synchronization: Set language to Turkish and sync with mouth
+      Speech.speak(aiReply, {
+        language: 'tr-TR', // <--- This is the CRITICAL line
+        onStart: () => setStatus('speaking'),
+        onDone: () => setStatus('idle'),
+        onError: (error) => {
+          console.error("TTS Error:", error);
+          // Fallback to default if tr-TR isn't downloaded on the device
+          Speech.speak(aiReply, { onStart: () => setStatus('speaking'), onDone: () => setStatus('idle') });
+        },
+      });
+
     } catch (err) {
-      console.error('[Avatar] flow failed', err);
+      console.error('[Avatar] Recording flow failed', err);
       setStatus('idle');
     }
   }
@@ -242,9 +277,11 @@ export default function AvatarSessionScreen() {
     // @ts-ignore
     formData.append('file', { uri, name: 'recording.m4a', type: 'audio/m4a' });
     formData.append('model', 'whisper-1');
+    formData.append('language', 'tr'); // Hint for Turkish transcription
+
     const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'multipart/form-data' },
+      headers: { Authorization: `Bearer ${apiKey}` },
       body: formData,
     });
     if (!response.ok) return null;
@@ -256,39 +293,14 @@ export default function AvatarSessionScreen() {
     Speech.stop();
     if (supabaseSessionIdRef.current) {
       if (userThoughts.length === 0) {
-        await deleteSession(supabaseSessionIdRef.current);
+        deleteSession(supabaseSessionIdRef.current).catch(() => {});
       } else {
         const now = new Date().toISOString();
-        await updateSession({ id: supabaseSessionIdRef.current, messages: messages, endedAt: now });
-        summarizeAndExtractThoughts({ 
-          messages: messages.filter(msg => msg.type === 'user' || msg.type === 'question').map(msg => ({
-            role: (msg.type === 'user' ? 'user' : 'agent') as 'user' | 'agent',
-            content: msg.content,
-            timestamp: msg.timestamp,
-          }))
-        }).then(async ({ summary, thoughts }) => {
-          if (supabaseSessionIdRef.current) {
-            await updateSessionSummaryAndThoughts({ sessionId: supabaseSessionIdRef.current, summary, thoughts, setPostProcessedAt: true });
-            await insertThoughtItems({ sessionId: supabaseSessionIdRef.current, thoughts: thoughts.map(t => ({ text: t.text, timestamp: t.timestamp })) });
-            runCategorizationForSession(supabaseSessionIdRef.current);
-          }
-        }).catch(e => console.error(e));
+        updateSession({ id: supabaseSessionIdRef.current, messages: messages, endedAt: now }).catch(() => {});
       }
     }
-    navigation.navigate('JournalHomeScreen');
+    navigation.navigate('JournalHome', { screen: 'JournalHomeScreen' });
   }, [navigation, messages, userThoughts.length]);
-
-  const handleEndSession = async () => {
-    if (userThoughts.length > 0) {
-      try {
-        await createSessionMutation.mutateAsync({
-          thoughts: userThoughts.map(m => ({ content: m.content, timestamp: m.timestamp })),
-          mood: 6,
-        });
-      } catch (e) {}
-    }
-    await handleBack();
-  };
 
   return (
     <View style={styles.container}>
@@ -298,13 +310,15 @@ export default function AvatarSessionScreen() {
       </View>
       <View style={styles.lowerHalf}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={handleBack} hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}><Text style={styles.backText}>Back</Text></TouchableOpacity>
+          <TouchableOpacity onPress={handleBack} hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}>
+            <Text style={styles.backText}>Back</Text>
+          </TouchableOpacity>
           <Text style={styles.headerTitle}>Avatar Session</Text>
           <View style={{ width: 40 }} />
         </View>
         <View style={styles.statusBox}>
           <Text style={styles.statusText}>
-            {status === 'idle' && 'Tap to speak'}
+            {status === 'idle' && 'Tap and hold to speak'}
             {status === 'recording' && 'Listening...'}
             {status === 'processing' && 'Thinking...'}
             {status === 'speaking' && 'Speaking...'}
@@ -312,12 +326,16 @@ export default function AvatarSessionScreen() {
         </View>
         <View style={styles.buttonContainer}>
           <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-            <TouchableOpacity style={[styles.recordButton, status === 'recording' && styles.recordButtonActive]} onPressIn={startRecording} onPressOut={stopRecording} activeOpacity={0.8}>
+            <TouchableOpacity
+              style={[styles.recordButton, status === 'recording' && styles.recordButtonActive]}
+              onPressIn={startRecording}
+              onPressOut={stopRecording}
+              activeOpacity={0.8}
+            >
               <Text style={styles.recordIcon}>{status === 'recording' ? '⏹' : '🎤'}</Text>
             </TouchableOpacity>
           </Animated.View>
         </View>
-        <TouchableOpacity style={styles.endButton} onPress={handleEndSession}><Text style={styles.endButtonText}>End Session</Text></TouchableOpacity>
       </View>
     </View>
   );
@@ -336,6 +354,4 @@ const styles = StyleSheet.create({
   recordButton: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#3498db', justifyContent: 'center', alignItems: 'center', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
   recordButtonActive: { backgroundColor: '#FF5252' },
   recordIcon: { fontSize: 40, color: '#FFFFFF' },
-  endButton: { paddingHorizontal: 30, paddingVertical: 15, borderRadius: 25, backgroundColor: '#E8ECEB' },
-  endButtonText: { color: '#636E72', fontSize: 16, fontWeight: '600' },
 });

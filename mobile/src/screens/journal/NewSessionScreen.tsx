@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useHeaderHeight } from '@react-navigation/elements';
 
 import { MessageBubble, QuestionBubble } from '../../components/journal';
 import { useCreateSession } from '../../hooks/useJournal';
@@ -33,6 +34,7 @@ export default function NewSessionScreen() {
   const navigation = useNavigation<any>();
   const createSessionMutation = useCreateSession();
   const flatListRef = useRef<FlatList>(null);
+  const headerHeight = useHeaderHeight();
 
   const [sessionStartedAt] = useState(() => new Date());
   const supabaseSessionIdRef = useRef<string | null>(null);
@@ -60,24 +62,18 @@ export default function NewSessionScreen() {
   }, [sessionStartedAt]);
 
   const cleanupAndNavigate = useCallback(async () => {
-    console.log('[NewSession] Cleaning up. User messages:', userThoughts.length);
-    
     if (supabaseSessionIdRef.current) {
       if (userThoughts.length === 0) {
-        console.log('[NewSession] No user messages, deleting empty session');
         deleteSession(supabaseSessionIdRef.current).catch(e => console.error(e));
       } else {
-        console.log('[NewSession] Saving session progress');
         const now = new Date().toISOString();
-        // Fire and forget updates
-        updateSession({ 
-          id: supabaseSessionIdRef.current, 
-          messages: messages, 
-          endedAt: now 
+        updateSession({
+          id: supabaseSessionIdRef.current,
+          messages: messages,
+          endedAt: now
         }).catch(e => console.error(e));
-        
-        // Post processing only if thoughts exist
-        summarizeAndExtractThoughts({ 
+
+        summarizeAndExtractThoughts({
           messages: messages.filter(msg => msg.type === 'user' || msg.type === 'question').map(msg => ({
             role: (msg.type === 'user' ? 'user' : 'agent') as 'user' | 'agent',
             content: msg.content,
@@ -92,8 +88,6 @@ export default function NewSessionScreen() {
         }).catch(e => console.error('[NewSession] Post-processing failed:', e));
       }
     }
-    
-    // Immediate navigation to ensure responsiveness
     navigation.navigate('JournalHomeScreen');
   }, [navigation, messages, userThoughts.length]);
 
@@ -124,7 +118,7 @@ export default function NewSessionScreen() {
       const aiReply = await getJournalAssistantReply(updatedMessages);
       const aiMessage: ChatMessage = { id: (Date.now() + 1).toString(), type: 'question', content: aiReply, timestamp: new Date().toISOString() };
       setMessages(prev => [...prev, aiMessage]);
-      
+
       if (supabaseSessionIdRef.current) {
         updateSession({ id: supabaseSessionIdRef.current, messages: [...updatedMessages, aiMessage] }).catch(e => console.error(e));
       }
@@ -136,7 +130,7 @@ export default function NewSessionScreen() {
   }, [inputText, messages, ensureSupabaseSession]);
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={handleBack} hitSlop={{ top: 20, bottom: 20, left: 20, right: 20 }}>
           <Text style={styles.backText}>Back</Text>
@@ -147,14 +141,18 @@ export default function NewSessionScreen() {
         </TouchableOpacity>
       </View>
 
-      <KeyboardAvoidingView style={styles.keyboardAvoid} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoid}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? headerHeight : 0}
+      >
         <FlatList
           ref={flatListRef}
           data={messages}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            item.type === 'user' 
-              ? <MessageBubble content={item.content} timestamp={item.timestamp} /> 
+            item.type === 'user'
+              ? <MessageBubble content={item.content} timestamp={item.timestamp} />
               : <QuestionBubble content={item.content} />
           )}
           contentContainerStyle={styles.messagesList}
@@ -164,8 +162,19 @@ export default function NewSessionScreen() {
 
         <View style={styles.inputContainer}>
           <View style={styles.inputWrapper}>
-            <TextInput style={styles.input} placeholder="Share your thoughts..." value={inputText} onChangeText={setInputText} multiline />
-            <TouchableOpacity style={[styles.sendButton, inputText.trim() && styles.sendButtonActive]} onPress={sendMessage} disabled={!inputText.trim()}>
+            <TextInput
+              style={styles.input}
+              placeholder="Share your thoughts..."
+              placeholderTextColor="#9DAEBB"
+              value={inputText}
+              onChangeText={setInputText}
+              multiline
+            />
+            <TouchableOpacity
+              style={[styles.sendButton, inputText.trim() && styles.sendButtonActive]}
+              onPress={sendMessage}
+              disabled={!inputText.trim()}
+            >
               <Text style={styles.sendText}>↑</Text>
             </TouchableOpacity>
           </View>
@@ -183,7 +192,13 @@ const styles = StyleSheet.create({
   endText: { color: '#5B8A72', fontSize: 16, fontWeight: '600' },
   keyboardAvoid: { flex: 1 },
   messagesList: { padding: 16, paddingBottom: 8 },
-  inputContainer: { paddingHorizontal: 16, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#E8ECEB', backgroundColor: '#FFFFFF' },
+  inputContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1, 
+    borderTopColor: '#E8ECEB', 
+    backgroundColor: '#FFFFFF' 
+  },
   inputWrapper: { flexDirection: 'row', alignItems: 'flex-end', backgroundColor: '#F0F4F3', borderRadius: 24, paddingHorizontal: 16, paddingVertical: 8 },
   input: { flex: 1, fontSize: 16, color: '#2D3436', maxHeight: 100, paddingVertical: 8 },
   sendButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#E8ECEB', justifyContent: 'center', alignItems: 'center', marginLeft: 8 },
