@@ -19,5 +19,12 @@ export const QUESTION_STEMS = [
   'What comes up when you sit with this feeling?',
   'What does this thought assume about the future?',
   'What would contradict this thought?',
+  'How long have you been carrying this feeling?',
+  'What would you tell a close friend who had this same thought?',
+  'Is there a past moment where you felt this way before? What happened then?',
+  'What is the kindest interpretation of this situation?',
+  'What would change if this thought turned out to be wrong?',
+  'On a scale of 1–10, how much control do you have over this right now?',
+  'What small action could you take today that would feel like progress?',
 ];
 
