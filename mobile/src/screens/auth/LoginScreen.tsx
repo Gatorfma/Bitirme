@@ -1,3 +1,4 @@
+
 /**
  * LoginScreen
  * User login screen
@@ -22,10 +23,16 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
 
+  const validateEmail = (value: string): string | undefined => {
+    if (!value) return 'Email is required';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return 'Enter a valid email address';
+    return undefined;
+  };
+
   const validate = () => {
     const newErrors: typeof errors = {};
-    if (!email) newErrors.email = 'Email is required';
-    else if (!/\S+@\S+\.\S+/.test(email)) newErrors.email = 'Invalid email format';
+    const emailError = validateEmail(email);
+    if (emailError) newErrors.email = emailError;
     if (!password) newErrors.password = 'Password is required';
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -58,7 +65,11 @@ export default function LoginScreen() {
             label="Email"
             placeholder="Enter your email"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(text) => {
+              setEmail(text);
+              if (errors.email) setErrors((prev) => ({ ...prev, email: undefined }));
+            }}
+            onBlur={() => setErrors((prev) => ({ ...prev, email: validateEmail(email) }))}
             error={errors.email}
             keyboardType="email-address"
             autoCapitalize="none"
