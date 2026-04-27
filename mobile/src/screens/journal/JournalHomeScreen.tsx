@@ -65,6 +65,8 @@ function EmptyState({ onStartSession }: { onStartSession: () => void }) {
 export default function JournalHomeScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { data, isLoading, refetch, isRefetching } = useJournalSessions();
+  const [voiceHovered, setVoiceHovered] = React.useState(false);
+  const [writeHovered, setWriteHovered] = React.useState(false);
 
   const sessions = data?.items || [];
 
@@ -119,22 +121,26 @@ export default function JournalHomeScreen() {
         />
       )}
 
-      {/* New Blue FAB added from scratch above the green one */}
+      {/* Avatar / Voice FAB */}
       <TouchableOpacity
         style={styles.blueFab}
         onPress={handleStartAvatarSession}
+        onPressIn={() => setVoiceHovered(true)}
+        onPressOut={() => setVoiceHovered(false)}
         activeOpacity={0.8}
       >
-        <Text style={styles.blueFabText}>+</Text>
+        <Text style={styles.fabText}>{voiceHovered ? '🎙️' : '+'}</Text>
       </TouchableOpacity>
 
-      {/* FAB */}
+      {/* Text journaling FAB */}
       <TouchableOpacity
         style={styles.fab}
         onPress={handleStartSession}
+        onPressIn={() => setWriteHovered(true)}
+        onPressOut={() => setWriteHovered(false)}
         activeOpacity={0.8}
       >
-        <Text style={styles.fabText}>+</Text>
+        <Text style={styles.fabText}>{writeHovered ? '✏️' : '+'}</Text>
       </TouchableOpacity>
     </ScreenContainer>
   );
@@ -236,9 +242,10 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   fabText: {
-    fontSize: 32,
+    fontSize: 28,
     color: '#FFFFFF',
     fontWeight: '300',
+    lineHeight: 32,
   },
   blueFab: {
     position: 'absolute',
@@ -255,10 +262,5 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 4,
-  },
-  blueFabText: {
-    fontSize: 32,
-    color: '#FFFFFF',
-    fontWeight: '300',
   },
 });
