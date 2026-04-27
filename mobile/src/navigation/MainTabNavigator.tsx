@@ -13,6 +13,7 @@ import type { MainTabParamList, JournalStackParamList } from '../types/navigatio
 import HomeScreen from '../screens/home/HomeScreen';
 import JournalHomeScreen from '../screens/journal/JournalHomeScreen';
 import NewSessionScreen from '../screens/journal/NewSessionScreen';
+import AvatarSessionScreen from '../screens/journal/AvatarSessionScreen';
 import SessionDetailScreen from '../screens/journal/SessionDetailScreen';
 import MindMapScreen from '../screens/mindmap/MindMapScreen';
 import StatsScreen from '../screens/stats/StatsScreen';
@@ -53,6 +54,7 @@ function JournalStackNavigator() {
     >
       <JournalStack.Screen name="JournalHomeScreen" component={JournalHomeScreen} />
       <JournalStack.Screen name="NewSession" component={NewSessionScreen} />
+      <JournalStack.Screen name="AvatarSession" component={AvatarSessionScreen} />
       <JournalStack.Screen name="SessionDetail" component={SessionDetailScreen} />
     </JournalStack.Navigator>
   );

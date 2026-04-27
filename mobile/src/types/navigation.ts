@@ -11,6 +11,7 @@ import type { CompositeScreenProps, NavigatorScreenParams } from '@react-navigat
 export type RootStackParamList = {
   Auth: NavigatorScreenParams<AuthStackParamList>;
   Onboarding: undefined;
+  Home: undefined;
   Main: NavigatorScreenParams<MainTabParamList>;
 };
 
@@ -33,6 +34,7 @@ export type MainTabParamList = {
 export type JournalStackParamList = {
   JournalHomeScreen: undefined;
   NewSession: undefined;
+  AvatarSession: undefined;
   SessionDetail: { sessionId: string };
 };
 

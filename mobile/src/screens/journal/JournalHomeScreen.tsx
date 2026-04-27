@@ -72,6 +72,10 @@ export default function JournalHomeScreen() {
     navigation.navigate('NewSession');
   };
 
+  const handleStartAvatarSession = () => {
+    navigation.navigate('AvatarSession');
+  };
+
   const handleViewSession = (sessionId: string) => {
     navigation.navigate('SessionDetail', { sessionId });
   };
@@ -114,6 +118,15 @@ export default function JournalHomeScreen() {
           }
         />
       )}
+
+      {/* New Blue FAB added from scratch above the green one */}
+      <TouchableOpacity
+        style={styles.blueFab}
+        onPress={handleStartAvatarSession}
+        activeOpacity={0.8}
+      >
+        <Text style={styles.blueFabText}>+</Text>
+      </TouchableOpacity>
 
       {/* FAB */}
       <TouchableOpacity
@@ -227,5 +240,25 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '300',
   },
+  blueFab: {
+    position: 'absolute',
+    right: 20,
+    bottom: 105,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#3498db',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  blueFabText: {
+    fontSize: 32,
+    color: '#FFFFFF',
+    fontWeight: '300',
+  },
 });
-
