@@ -201,8 +201,8 @@ Output format (JSON only):
   } catch (error) {
     console.error('[PostProcessor] Failed to summarize and extract thoughts:', {
       messageCount: params.messages.length,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: (error as any)?.message ?? String(error),
+      stack: (error as any)?.stack,
     });
     throw error;
   }

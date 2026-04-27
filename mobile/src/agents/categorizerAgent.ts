@@ -269,8 +269,8 @@ Examples:
   } catch (error) {
     console.error('[Categorizer] Failed to categorize thought:', {
       thoughtText: params.thoughtText.substring(0, 50),
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: (error as any)?.message ?? String(error),
+      stack: (error as any)?.stack,
     });
     throw error;
   }

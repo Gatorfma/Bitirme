@@ -101,8 +101,8 @@ export async function insertThoughtItems(params: {
     console.error('[ThoughtItemsRepo] Failed to upsert thought items:', {
       sessionId: params.sessionId,
       attemptedCount: params.thoughts.length,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: (error as any)?.message ?? String(error),
+      stack: (error as any)?.stack,
     });
     throw error;
   }
@@ -162,8 +162,8 @@ export async function getThoughtsByActiveCategory(
   } catch (error) {
     console.error('[ThoughtItemsRepo] Failed to fetch thoughts by category:', {
       categoryId,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: (error as any)?.message ?? String(error),
+      stack: (error as any)?.stack,
     });
     throw error;
   }

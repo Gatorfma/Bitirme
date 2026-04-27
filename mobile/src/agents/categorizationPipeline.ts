@@ -442,8 +442,8 @@ export async function runCategorizationForSession(sessionId: string): Promise<vo
       } catch (error) {
         console.error('[CategorizationPipeline] Error processing thought item:', {
           thoughtItemId: thoughtItem.id,
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
+          error: (error as any)?.message ?? String(error),
+          stack: (error as any)?.stack,
         });
         // Continue with next item instead of failing entire pipeline
       }
@@ -479,8 +479,8 @@ export async function runCategorizationForSession(sessionId: string): Promise<vo
     }
   } catch (error) {
     // Step 9: On error, set status to 'error' and write categorization_error
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    const errorStack = error instanceof Error ? error.stack : undefined;
+    const errorMessage = (error as any)?.message ?? String(error);
+    const errorStack = (error as any)?.stack;
 
     console.error('[CategorizationPipeline] Categorization failed, setting error status:', {
       sessionId,

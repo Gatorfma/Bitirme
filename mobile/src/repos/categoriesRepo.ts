@@ -45,8 +45,8 @@ export async function getActiveCategories(): Promise<
     }));
   } catch (error) {
     console.error('[CategoriesRepo] Failed to fetch active categories:', {
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: (error as any)?.message ?? String(error),
+      stack: (error as any)?.stack,
     });
     throw error;
   }
@@ -100,8 +100,8 @@ export async function findActiveCategoryByName(
   } catch (error) {
     console.error('[CategoriesRepo] Failed to find active category:', {
       name,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: (error as any)?.message ?? String(error),
+      stack: (error as any)?.stack,
     });
     throw error;
   }
@@ -148,8 +148,8 @@ export async function getPendingCategories(): Promise<
     }));
   } catch (error) {
     console.error('[CategoriesRepo] Failed to fetch pending categories:', {
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: (error as any)?.message ?? String(error),
+      stack: (error as any)?.stack,
     });
     throw error;
   }
@@ -207,8 +207,8 @@ export async function findPendingCategoryByName(
   } catch (error) {
     console.error('[CategoriesRepo] Failed to find pending category:', {
       name,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: (error as any)?.message ?? String(error),
+      stack: (error as any)?.stack,
     });
     throw error;
   }
@@ -294,8 +294,8 @@ export async function upsertPendingCategory(
   } catch (error) {
     console.error('[CategoriesRepo] Failed to upsert pending category:', {
       name,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: (error as any)?.message ?? String(error),
+      stack: (error as any)?.stack,
     });
     throw error;
   }
@@ -405,8 +405,8 @@ export async function incrementPendingHit(
     console.error('[CategoriesRepo] Failed to increment pending hit:', {
       pendingId,
       sessionId,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: (error as any)?.message ?? String(error),
+      stack: (error as any)?.stack,
     });
     throw error;
   }
@@ -475,8 +475,8 @@ export async function createActiveCategory(
   } catch (error) {
     console.error('[CategoriesRepo] Failed to create active category:', {
       name,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: (error as any)?.message ?? String(error),
+      stack: (error as any)?.stack,
     });
     throw error;
   }
@@ -553,8 +553,8 @@ export async function incrementActiveCount(
     console.error('[CategoriesRepo] Failed to increment active count:', {
       activeId,
       delta,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: (error as any)?.message ?? String(error),
+      stack: (error as any)?.stack,
     });
     throw error;
   }
@@ -705,8 +705,8 @@ export async function promotePendingToActive(
   } catch (error) {
     console.error('[CategoriesRepo] Failed to promote pending to active:', {
       pendingId,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: (error as any)?.message ?? String(error),
+      stack: (error as any)?.stack,
     });
     throw error;
   }

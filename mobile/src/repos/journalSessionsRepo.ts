@@ -75,8 +75,8 @@ export async function updateSessionSummaryAndThoughts(params: {
   } catch (error) {
     console.error('[JournalSessionsRepo] Failed to update session summary and thoughts:', {
       sessionId: params.sessionId,
-      error: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
+      error: (error as any)?.message ?? String(error),
+      stack: (error as any)?.stack,
     });
     throw error;
   }
