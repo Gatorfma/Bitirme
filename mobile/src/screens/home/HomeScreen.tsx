@@ -41,7 +41,7 @@ const fragSource = `
 /**
  * A stylized "Real-Life" physical calendar component with navigation
  */
-const CalendarView = ({ viewDate, onPrevMonth, onNextMonth }: any) => {
+const CalendarView = ({ viewDate, onPrevMonth, onNextMonth, activeDates = [] }: any) => {
   const today = new Date();
   const monthName = viewDate.toLocaleString('default', { month: 'long' });
   const year = viewDate.getFullYear();
@@ -66,18 +66,11 @@ const CalendarView = ({ viewDate, onPrevMonth, onNextMonth }: any) => {
            viewDate.getFullYear() === today.getFullYear();
   };
 
-  const isFutureDate = (day: number | null) => {
+  const hasEntry = (day: number | null) => {
     if (!day) return false;
-    const dateToCheck = new Date(year, viewDate.getMonth(), day);
-    // Standardize both to midnight for accurate comparison
-    const compareToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    return dateToCheck > compareToday;
-  };
-
-  const hasStar = (day: number | null) => {
-    if (!day || isFutureDate(day)) return false;
-    const hash = (day * 127 + viewDate.getMonth() * 31 + viewDate.getFullYear()) % 10;
-    return hash < 8;
+    // Format to YYYY-MM-DD to match stats API format
+    const dateStr = `${year}-${String(viewDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return activeDates.includes(dateStr);
   };
 
   const weekDays = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
@@ -119,22 +112,23 @@ const CalendarView = ({ viewDate, onPrevMonth, onNextMonth }: any) => {
             {days.map((day, index) => (
               <View key={index} style={styles.dayCell}>
                 {day && (
-                  <>
-                    {hasStar(day) && (
-                      <Text style={styles.starIcon}>⭐</Text>
-                    )}
-                    <View style={[
-                      styles.dayCircle,
-                      isToday(day) && styles.todayCircle
+                  <View style={[
+                    styles.dayCircle,
+                    isToday(day) && styles.todayCircle
+                  ]}>
+                    <Text style={[
+                      styles.dayText,
+                      isToday(day) && styles.todayText
                     ]}>
-                      <Text style={[
-                        styles.dayText,
-                        isToday(day) && styles.todayText
-                      ]}>
-                        {day}
-                      </Text>
-                    </View>
-                  </>
+                      {day}
+                    </Text>
+                    {hasEntry(day) && (
+                      <View style={[
+                        styles.entryDot,
+                        isToday(day) && styles.todayDot
+                      ]} />
+                    )}
+                  </View>
                 )}
               </View>
             ))}
@@ -290,6 +284,7 @@ export default function HomeScreen() {
           viewDate={viewDate}
           onPrevMonth={handlePrevMonth}
           onNextMonth={handleNextMonth}
+          activeDates={stats?.activeDates}
         />
 
         {/* Streak Indicator */}
@@ -476,11 +471,16 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: 'bold',
   },
-  starIcon: {
+  entryDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#000000',
     position: 'absolute',
-    fontSize: 24,
-    color: 'rgba(255, 215, 0, 1)',
-    zIndex: -1,
+    bottom: 3,
+  },
+  todayDot: {
+    backgroundColor: '#FFFFFF',
   },
 
   // Streak Styles
