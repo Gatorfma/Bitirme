@@ -6,6 +6,15 @@
 import { supabase } from '../lib/supabase';
 import type { ChatMessage, JournalSession, Thought } from '../types/models';
 
+/**
+ * Returns the currently authenticated user's ID, or throws if unauthenticated.
+ */
+async function getCurrentUserId(): Promise<string> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+  return user.id;
+}
+
 export type SessionMessage = {
   role: 'user' | 'agent';
   content: string;
@@ -14,6 +23,7 @@ export type SessionMessage = {
 
 type SupabaseSessionRow = {
   id: string;
+  user_id: string | null;
   started_at: string;
   ended_at: string | null;
   messages: SessionMessage[];
@@ -171,7 +181,7 @@ function convertSupabaseSessionToJournalSession(row: SupabaseSessionRow): Journa
 
   return {
     id: row.id,
-    userId: 'user-1', // Placeholder - in production, use auth.uid()
+    userId: row.user_id ?? '',
     startedAt: row.started_at,
     endedAt: row.ended_at || undefined,
     thoughts,
