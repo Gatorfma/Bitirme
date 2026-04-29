@@ -830,12 +830,14 @@ function MindMapVisualization3D({
         ))}
       </View>
 
-      <TouchableOpacity
-        style={[styles.fullscreenButton, isFullscreen && styles.fullscreenButtonExit]}
-        onPress={() => setIsFullscreen(!isFullscreen)}
-      >
-        <Text style={styles.fullscreenButtonText}>{isFullscreen ? '↙️' : '↗️'}</Text>
-      </TouchableOpacity>
+      {!isFullscreen && (
+        <TouchableOpacity
+          style={styles.fullscreenButton}
+          onPress={() => setIsFullscreen(true)}
+        >
+          <Text style={styles.fullscreenButtonText}>↗️</Text>
+        </TouchableOpacity>
+      )}
 
       <View style={styles.hintBadge} pointerEvents="none">
         <Text style={styles.hintText}>Rotate & Zoom · Tap Nodes</Text>
@@ -846,8 +848,14 @@ function MindMapVisualization3D({
   if (isFullscreen) {
     return (
       <Modal visible transparent={false} animationType="fade">
-        <View style={{ flex: 1, backgroundColor: '#1a1a2e' }}>
+        <View style={{ flex: 1, backgroundColor: '#030712' }}>
           <SafeAreaView style={{ flex: 1 }}>{MapContent}</SafeAreaView>
+          <TouchableOpacity
+            style={styles.minimizeButton}
+            onPress={() => setIsFullscreen(false)}
+          >
+            <Text style={styles.minimizeButtonText}>✕</Text>
+          </TouchableOpacity>
         </View>
       </Modal>
     );
@@ -1063,6 +1071,7 @@ const styles = StyleSheet.create({
   categoryModalName:     { flex:1, fontSize:15, color:'#2D3436', marginLeft:12 },
   categoryModalCount:    { fontSize:14, color:'#636E72', fontWeight:'500' },
   fullscreenButton:      { position:'absolute', bottom:12, right:12, backgroundColor:'rgba(0,0,0,0.3)', width:40, height:44, borderRadius:20, justifyContent:'center', alignItems:'center', zIndex:100 },
-  fullscreenButtonExit:  { bottom:24 },
   fullscreenButtonText:  { fontSize:18 },
+  minimizeButton:        { position:'absolute', top:52, right:16, backgroundColor:'rgba(0,0,0,0.55)', width:40, height:40, borderRadius:20, justifyContent:'center', alignItems:'center', zIndex:200 },
+  minimizeButtonText:    { color:'#fff', fontSize:16, fontWeight:'700' },
 });
