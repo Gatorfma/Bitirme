@@ -8,8 +8,9 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   View, Text, StyleSheet, TouchableOpacity, Dimensions, Modal,
-  FlatList, Pressable, TouchableWithoutFeedback, SafeAreaView
+  FlatList, Pressable, TouchableWithoutFeedback
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { GLView } from 'expo-gl';
 import { Renderer } from 'expo-three';
 import * as THREE from 'three';
@@ -20,7 +21,8 @@ import { getActiveCategories } from '../../repos/categoriesRepo';
 import { getThoughtsByActiveCategory } from '../../repos/thoughtItemsRepo';
 import type { ThoughtCategory } from '../../types/models';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: WINDOW_HEIGHT } = Dimensions.get('window');
+const { height: SCREEN_HEIGHT } = Dimensions.get('screen'); // Full hardware height
 const CHART_SIZE = SCREEN_WIDTH - 40;
 
 // Performance tuning
@@ -68,21 +70,6 @@ function hashStringToUnit(value: string): number {
     hash = Math.imul(hash, 16777619);
   }
   return ((hash >>> 0) % 1000) / 1000;
-}
-
-function fibonacciSphere(n: number, radius: number): THREE.Vector3[] {
-  const points: THREE.Vector3[] = [];
-  const goldenRatio = (1 + Math.sqrt(5)) / 2;
-  for (let i = 0; i < n; i++) {
-    const theta = Math.acos(1 - (2 * (i + 0.5)) / n);
-    const phi = (2 * Math.PI * i) / goldenRatio;
-    points.push(new THREE.Vector3(
-      radius * Math.sin(theta) * Math.cos(phi),
-      radius * Math.cos(theta),
-      radius * Math.sin(theta) * Math.sin(phi),
-    ));
-  }
-  return points;
 }
 
 function generateNodes3D(categories: ThoughtCategory[]): MindMapNode3D[] {
@@ -202,7 +189,7 @@ function MindMapVisualization3D({
   const [labels, setLabels] = useState<LabelData[]>([]);
 
   const currentWidth  = isFullscreen ? SCREEN_WIDTH  : CHART_SIZE;
-  const currentHeight = isFullscreen ? SCREEN_HEIGHT : CHART_SIZE;
+  const currentHeight = isFullscreen ? WINDOW_HEIGHT : CHART_SIZE;
 
   const rendererRef = useRef<Renderer | null>(null);
   const sceneRef    = useRef<THREE.Scene | null>(null);
@@ -790,7 +777,13 @@ function MindMapVisualization3D({
 
   if (isFullscreen) {
     return (
-      <Modal visible transparent={false} animationType="fade">
+      <Modal 
+        visible 
+        transparent={false} 
+        animationType="fade" 
+        statusBarTranslucent
+        presentationStyle="overFullScreen"
+      >
         <View style={{ flex: 1, backgroundColor: '#030712' }}>
           <SafeAreaView style={{ flex: 1 }}>{MapContent}</SafeAreaView>
           <TouchableOpacity
@@ -881,31 +874,42 @@ export default function MindMapScreen() {
   if (isLoading) return <ScreenContainer><LoadingSpinner message="Loading mind map..." /></ScreenContainer>;
 
   return (
-    <ScreenContainer scrollable>
-      <AppHeader title="Mind Map" subtitle="Visualize your thoughts" />
-      {nodes.length > 0 ? (
-        <>
-          <MindMapVisualization3D nodes={nodes} onCategoryTap={handleCategoryTap} resetSignal={resetSignal} />
-          <View style={styles.legend}>
-            <View style={styles.legendHeader}>
-              <Text style={styles.legendTitle}>Categories</Text>
-              {categories.length > 5 && (
-                <Pressable onPress={() => setIsAllCategoriesModalVisible(true)}>
-                  <Text style={styles.seeAllButton}>See all</Text>
-                </Pressable>
-              )}
+    <>
+      <ScreenContainer scrollable>
+        <AppHeader title="Mind Map" subtitle="Visualize your thoughts" />
+        {nodes.length > 0 ? (
+          <>
+            <MindMapVisualization3D nodes={nodes} onCategoryTap={handleCategoryTap} resetSignal={resetSignal} />
+            <View style={styles.legend}>
+              <View style={styles.legendHeader}>
+                <Text style={styles.legendTitle}>Categories</Text>
+                {categories.length > 5 && (
+                  <Pressable onPress={() => setIsAllCategoriesModalVisible(true)}>
+                    <Text style={styles.seeAllButton}>See all</Text>
+                  </Pressable>
+                )}
+              </View>
+              {categories.slice(0, 5).map(cat => (
+                <TouchableOpacity key={cat.id} style={styles.legendItem} onPress={() => handleCategoryTap(cat.id)}>
+                  <View style={[styles.legendDot, { backgroundColor: cat.color }]} />
+                  <Text style={styles.legendLabel}>{cat.name}</Text>
+                  <Text style={styles.legendCount}>{cat.thoughtCount}</Text>
+                </TouchableOpacity>
+              ))}
             </View>
-            {categories.slice(0, 5).map(cat => (
-              <TouchableOpacity key={cat.id} style={styles.legendItem} onPress={() => handleCategoryTap(cat.id)}>
-                <View style={[styles.legendDot, { backgroundColor: cat.color }]} />
-                <Text style={styles.legendLabel}>{cat.name}</Text>
-                <Text style={styles.legendCount}>{cat.thoughtCount}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </>
-      ) : <EmptyState />}
-      <Modal visible={isThoughtsModalVisible} transparent animationType="fade" onRequestClose={() => setIsThoughtsModalVisible(false)}>
+          </>
+        ) : <EmptyState />}
+      </ScreenContainer>
+
+      {/* Thoughts Modal */}
+      <Modal 
+        visible={isThoughtsModalVisible} 
+        transparent 
+        animationType="fade" 
+        statusBarTranslucent
+        presentationStyle="overFullScreen"
+        onRequestClose={() => setIsThoughtsModalVisible(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
@@ -936,7 +940,16 @@ export default function MindMapScreen() {
           </View>
         </View>
       </Modal>
-      <Modal visible={isAllCategoriesModalVisible} transparent animationType="fade" onRequestClose={() => setIsAllCategoriesModalVisible(false)}>
+
+      {/* All Categories Modal */}
+      <Modal 
+        visible={isAllCategoriesModalVisible} 
+        transparent 
+        animationType="fade" 
+        statusBarTranslucent
+        presentationStyle="overFullScreen"
+        onRequestClose={() => setIsAllCategoriesModalVisible(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
@@ -967,7 +980,7 @@ export default function MindMapScreen() {
           </View>
         </View>
       </Modal>
-    </ScreenContainer>
+    </>
   );
 }
 
@@ -988,7 +1001,17 @@ const styles = StyleSheet.create({
   emptyEmoji:            { fontSize:64, marginBottom:16 },
   emptyTitle:            { fontSize:22, fontWeight:'bold', color:'#2D3436', marginBottom:8 },
   emptyText:             { fontSize:15, color:'#636E72', textAlign:'center', lineHeight:22 },
-  modalOverlay:          { flex:1, backgroundColor: 'rgba(0, 0, 0, 0.4)', justifyContent:'center', alignItems:'center' },
+  modalOverlay: { 
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)', 
+    justifyContent:'center', 
+    alignItems:'center',
+    zIndex: 1000,
+  },
   modalCard:             { width:'92%', maxHeight:'80%', backgroundColor:'#fff', borderRadius:18, overflow:'hidden' },
   modalHeader:           { paddingHorizontal:16, paddingTop:16, paddingBottom:12, flexDirection:'row', alignItems:'center', justifyContent:'space-between' },
   modalTitle:            { fontSize:18, fontWeight:'700' },
