@@ -3,8 +3,8 @@
  * The primary dashboard with a custom GLSL Shader background.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Dimensions, Modal } from 'react-native';
+import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Modal } from 'react-native';
 import { GLView } from 'expo-gl';
 import { StatusBar } from 'expo-status-bar';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
@@ -145,17 +145,11 @@ export default function HomeScreen() {
   const { user, token } = useAuthStore();
   const { data: stats } = useStatsOverview('week');
   const frameId = useRef<number | null>(null);
-  const scrollRef = useRef<ScrollView>(null);
   const hasShownPopup = useRef(false);
   const [isPopupVisible, setIsPopupVisible] = useState(false);
   const [viewDate, setViewDate] = useState(new Date());
 
-  // Scroll to top whenever the screen becomes focused
-  useEffect(() => {
-    if (isFocused) {
-      scrollRef.current?.scrollTo({ y: 0, animated: false });
-    }
-  }, [isFocused]);
+  // (Removed auto-scroll) Home is now a static, non-scrollable layout
 
   // Only show popup when screen becomes focused and user is definitely logged in
   useEffect(() => {
@@ -167,6 +161,40 @@ export default function HomeScreen() {
       return () => clearTimeout(timer);
     }
   }, [isFocused, token]);
+
+  // Use layout effect to set navigator options immediately and propagate to parents
+  useLayoutEffect(() => {
+    const setTransparentOptions = (nav: any) => {
+      if (!nav || !nav.setOptions) return;
+      try {
+        nav.setOptions({
+          headerTransparent: true,
+          headerStyle: { backgroundColor: 'transparent', elevation: 0, shadowOpacity: 0, borderBottomWidth: 0 },
+          headerTitleStyle: { color: '#FFFFFF' },
+          headerTintColor: '#FFFFFF',
+          headerBackground: () => null,
+        });
+
+        // If this nav is a Tab navigator, make its tab bar transparent as well
+        nav.setOptions({
+          tabBarStyle: { backgroundColor: 'transparent', borderTopWidth: 0, elevation: 0, position: 'absolute' },
+        });
+      } catch (e) {
+        // ignore
+      }
+    };
+
+    setTransparentOptions(navigation);
+
+    // Walk up a few parent levels to ensure parent navigators also become transparent
+    let parent = navigation.getParent && navigation.getParent();
+    let depth = 0;
+    while (parent && depth < 4) {
+      setTransparentOptions(parent);
+      parent = parent.getParent && parent.getParent();
+      depth += 1;
+    }
+  }, [navigation]);
 
   const handlePrevMonth = () => {
     setViewDate(new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1));
@@ -223,6 +251,7 @@ export default function HomeScreen() {
     };
   }, []);
 
+
   const MenuButton = ({ title, emoji, onPress, subtitle }: any) => (
     <TouchableOpacity style={styles.menuButton} onPress={onPress} activeOpacity={0.8}>
       <Text style={styles.menuEmoji}>{emoji}</Text>
@@ -269,75 +298,42 @@ export default function HomeScreen() {
         </View>
       </Modal>
 
-      <ScrollView
-        ref={scrollRef}
-        style={styles.contentLayer}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.header}>
+      <View style={styles.contentLayer}>
+        <View style={styles.scrollContent}>
+          <View style={styles.header}>
           <Text style={styles.welcomeText}>MindJournal</Text>
-          <Text style={styles.userName}>Hello, {user?.name || 'Friend'}</Text>
-        </View>
+          <Text style={styles.userName}>Hello, {user?.displayName ? `${user.displayName}` : 'Friend'}</Text>
+          </View>
 
-        <CalendarView
-          viewDate={viewDate}
-          onPrevMonth={handlePrevMonth}
-          onNextMonth={handleNextMonth}
-          activeDates={stats?.activeDates}
-        />
+          <CalendarView
+            viewDate={viewDate}
+            onPrevMonth={handlePrevMonth}
+            onNextMonth={handleNextMonth}
+            activeDates={stats?.activeDates}
+          />
 
-        {/* Streak Indicator */}
-        <View style={styles.streakContainer}>
-          <Text style={styles.streakLabel}>CURRENT STREAK</Text>
-          <Text style={styles.streakValue}>
-            {stats?.currentStreak ?? 0} <Text style={styles.streakEmoji}>🔥</Text>
-          </Text>
-        </View>
+          {/* Streak Indicator */}
+          <View style={styles.streakContainer}>
+            <Text style={styles.streakLabel}>CURRENT STREAK</Text>
+            <Text style={styles.streakValue}>
+              {stats?.currentStreak ?? 0} <Text style={styles.streakEmoji}>🔥</Text>
+            </Text>
+          </View>
 
-        <View style={styles.menuContainer}>
-          <MenuButton
-            title="Journal"
-            subtitle="Write and reflect"
-            emoji="✍️"
-            onPress={() => navigation.navigate('JournalHome')}
-          />
-          <MenuButton
-            title="Mind Map"
-            subtitle="Visualize thoughts"
-            emoji="🧠"
-            onPress={() => navigation.navigate('MindMap')}
-          />
-          <MenuButton
-            title="Stats"
-            subtitle="Track your progress"
-            emoji="📊"
-            onPress={() => navigation.navigate('Stats')}
-          />
-          <MenuButton
-            title="Behaviors"
-            subtitle="Analyze patterns"
-            emoji="🎯"
-            onPress={() => navigation.navigate('Behaviors')}
-          />
-          <MenuButton
-            title="Profile"
-            subtitle="Manage account"
-            emoji="👤"
-            onPress={() => navigation.navigate('Profile')}
-          />
+          {/* Navigation provided by the tab bar — in-page buttons removed */}
+          <View style={{ height: 20 }} />
         </View>
-      </ScrollView>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1A2633' },
+  container: { flex: 1, backgroundColor: 'transparent' },
   canvasContainer: { ...StyleSheet.absoluteFillObject },
   canvas: { ...StyleSheet.absoluteFillObject },
-  contentLayer: { flex: 1 },
-  scrollContent: { padding: 24, paddingTop: 60, paddingBottom: 40 },
+  contentLayer: { flex: 1, backgroundColor: 'transparent' },
+  scrollContent: { padding: 24, paddingTop: 60, paddingBottom: 40, backgroundColor: 'transparent' },
   header: { marginBottom: 32 },
   welcomeText: { fontSize: 16, color: 'rgba(255,255,255,0.6)', fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase' },
   userName: { fontSize: 32, fontWeight: 'bold', color: '#FFFFFF', marginTop: 8 },
@@ -368,7 +364,7 @@ const styles = StyleSheet.create({
   ringHole: {
     width: 8,
     height: 8,
-    backgroundColor: '#1A2633',
+    backgroundColor: 'transparent',
     borderRadius: 4,
     marginBottom: -4,
     zIndex: 11,

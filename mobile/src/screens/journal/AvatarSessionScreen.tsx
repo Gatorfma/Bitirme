@@ -52,6 +52,7 @@ export default function AvatarSessionScreen() {
 
   const recordingRef = useRef<Audio.Recording | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [lastAssistantLine, setLastAssistantLine] = useState('');
   const supabaseSessionIdRef = useRef<string | null>(null);
   const isStartingRecording = useRef(false);
 
@@ -85,7 +86,7 @@ export default function AvatarSessionScreen() {
     scene.add(avatarGroup);
 
     // Materials
-    const skinMat = new THREE.MeshPhongMaterial({ color: 0x6b7a8c, shininess: 10 });
+    const skinMat = new THREE.MeshPhongMaterial({ color: 0xD8DDE0, shininess: 10 });
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0x1a1a1a });
 
     // Torso (Soft pill shape)
@@ -178,26 +179,11 @@ export default function AvatarSessionScreen() {
         speakingMouth.visible = false;
       }
 
-      // Thinking State - Brows only, side-to-side head rotation removed
-      if (isThinking) {
-        // Furrow brows
-        leftBrow.position.y = 0.33;
-        rightBrow.position.y = 0.33;
-        leftBrow.rotation.z = -0.15;
-        rightBrow.rotation.z = 0.15;
-      } else if (isTalking) {
-        // Raise brows
-        leftBrow.position.y = 0.38;
-        rightBrow.position.y = 0.38;
-        leftBrow.rotation.z = 0;
-        rightBrow.rotation.z = 0;
-      } else {
-        // Reset brows to idle position
-        leftBrow.position.y = THREE.MathUtils.lerp(leftBrow.position.y, 0.35, 0.1);
-        rightBrow.position.y = THREE.MathUtils.lerp(rightBrow.position.y, 0.35, 0.1);
-        leftBrow.rotation.z = THREE.MathUtils.lerp(leftBrow.rotation.z, 0, 0.1);
-        rightBrow.rotation.z = THREE.MathUtils.lerp(rightBrow.rotation.z, 0, 0.1);
-      }
+      // Eyebrows - Always a straight line, no animation
+      leftBrow.position.y = 0.35;
+      rightBrow.position.y = 0.35;
+      leftBrow.rotation.z = 0;
+      rightBrow.rotation.z = 0;
 
       renderer.render(scene, camera);
       gl.endFrameEXP();
@@ -282,6 +268,7 @@ export default function AvatarSessionScreen() {
       const aiMessage: ChatMessage = { id: (Date.now() + 1).toString(), type: 'question', content: aiReply, timestamp: new Date().toISOString() };
       const finalMessages = [...updatedMessages, aiMessage];
       setMessages(finalMessages);
+      setLastAssistantLine(aiReply);
 
       if (supabaseSessionIdRef.current) {
         updateSession({ id: supabaseSessionIdRef.current, messages: finalMessages }).catch(() => {});
@@ -377,12 +364,10 @@ export default function AvatarSessionScreen() {
           <View style={{ width: 40 }} />
         </View>
 
-        <View style={styles.statusBox}>
-          <Text style={styles.statusText}>
-            {status === 'idle' && 'Hold mic to speak'}
-            {status === 'recording' && 'I\'m listening...'}
-            {status === 'processing' && 'One moment...'}
-            {status === 'speaking' && 'Reflecting...'}
+        <View style={styles.transcriptCard}>
+          <Text style={styles.transcriptLabel}>Last thing I said</Text>
+          <Text style={styles.transcriptText} numberOfLines={4}>
+            {lastAssistantLine || 'My latest reply will appear here.'}
           </Text>
         </View>
 
@@ -409,17 +394,45 @@ export default function AvatarSessionScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1A2633' },
-  upperHalf: { flex: 1.2, overflow: 'hidden' },
-  lowerHalf: { flex: 1, backgroundColor: '#FAFBFC', alignItems: 'center', paddingBottom: 40, borderTopLeftRadius: 30, borderTopRightRadius: 30, marginTop: -30, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: -5 }, shadowOpacity: 0.1, shadowRadius: 10 },
+  upperHalf: { flex: 1, overflow: 'hidden' },
+  lowerHalf: { 
+    flex: 1.05, 
+    backgroundColor: '#FAFBFC', 
+    alignItems: 'center', 
+    paddingBottom: 20, // Small padding for safe areas
+    borderTopLeftRadius: 30, 
+    borderTopRightRadius: 30, 
+    marginTop: -30, 
+    elevation: 10, 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: -5 }, 
+    shadowOpacity: 0.1, 
+    shadowRadius: 10 
+  },
   header: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 20 },
   backText: { color: '#3498db', fontSize: 16, fontWeight: '600' },
   headerTitle: { fontSize: 17, fontWeight: '700', color: '#2D3436' },
   statusBox: { marginTop: 10, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, backgroundColor: 'rgba(52, 152, 219, 0.08)' },
   statusText: { fontSize: 18, color: '#3498db', fontWeight: '600' },
-  buttonContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  transcriptCard: { width: '100%', marginTop: 16, marginHorizontal: 24, paddingHorizontal: 18, paddingVertical: 16, borderRadius: 22, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: 'rgba(52, 152, 219, 0.12)' },
+  transcriptLabel: { fontSize: 12, letterSpacing: 1.2, textTransform: 'uppercase', color: '#7A8C99', fontWeight: '700', marginBottom: 8 },
+  transcriptText: { fontSize: 16, lineHeight: 22, color: '#1F2D3A', fontWeight: '500' },
+  buttonContainer: { 
+    flex: 1, 
+    justifyContent: 'flex-end', 
+    alignItems: 'center', 
+    marginBottom: 8 // Space between record button and end button
+  },
   recordButton: { width: 90, height: 90, borderRadius: 45, backgroundColor: '#3498db', justifyContent: 'center', alignItems: 'center', elevation: 8, shadowColor: '#3498db', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 10 },
   recordButtonActive: { backgroundColor: '#FF5252', shadowColor: '#FF5252' },
   recordIcon: { fontSize: 36, color: '#FFFFFF' },
-  endButton: { paddingHorizontal: 40, paddingVertical: 14, borderRadius: 25, backgroundColor: '#F0F3F4' },
+  endButton: { 
+    paddingHorizontal: 40, 
+    paddingVertical: 14, 
+    borderRadius: 25, 
+    backgroundColor: '#F0F3F4', 
+    marginTop: 0, 
+    marginBottom: 0 
+  },
   endButtonText: { color: '#7F8C8D', fontSize: 15, fontWeight: '700' },
 });

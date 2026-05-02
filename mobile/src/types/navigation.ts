@@ -26,7 +26,6 @@ export type MainTabParamList = {
   JournalHome: undefined;
   MindMap: undefined;
   Home: undefined;
-  Stats: undefined;
   Profile: undefined;
 };
 

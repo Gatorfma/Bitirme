@@ -63,7 +63,7 @@ export function RootNavigator() {
     <Stack.Navigator
       screenOptions={{
         headerShown: false,
-        contentStyle: { backgroundColor: '#FAFBFC' },
+        contentStyle: { backgroundColor: 'transparent' },
         animation: 'fade',
       }}
       initialRouteName={!isAuthenticated ? 'Auth' : !isOnboarded ? 'Onboarding' : 'Main'}

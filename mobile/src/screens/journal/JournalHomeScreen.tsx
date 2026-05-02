@@ -65,8 +65,6 @@ function EmptyState({ onStartSession }: { onStartSession: () => void }) {
 export default function JournalHomeScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { data, isLoading, refetch, isRefetching } = useJournalSessions();
-  const [voiceHovered, setVoiceHovered] = React.useState(false);
-  const [writeHovered, setWriteHovered] = React.useState(false);
 
   const sessions = data?.items || [];
 
@@ -125,22 +123,18 @@ export default function JournalHomeScreen() {
       <TouchableOpacity
         style={styles.blueFab}
         onPress={handleStartAvatarSession}
-        onPressIn={() => setVoiceHovered(true)}
-        onPressOut={() => setVoiceHovered(false)}
         activeOpacity={0.8}
       >
-        <Text style={styles.fabText}>{voiceHovered ? '🎙️' : '+'}</Text>
+        <Text style={styles.fabText}>🎙️</Text>
       </TouchableOpacity>
 
       {/* Text journaling FAB */}
       <TouchableOpacity
         style={styles.fab}
         onPress={handleStartSession}
-        onPressIn={() => setWriteHovered(true)}
-        onPressOut={() => setWriteHovered(false)}
         activeOpacity={0.8}
       >
-        <Text style={styles.fabText}>{writeHovered ? '✏️' : '+'}</Text>
+        <Text style={styles.fabText}>✏️</Text>
       </TouchableOpacity>
     </ScreenContainer>
   );

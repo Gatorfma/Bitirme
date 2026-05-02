@@ -16,7 +16,6 @@ import NewSessionScreen from '../screens/journal/NewSessionScreen';
 import AvatarSessionScreen from '../screens/journal/AvatarSessionScreen';
 import SessionDetailScreen from '../screens/journal/SessionDetailScreen';
 import MindMapScreen from '../screens/mindmap/MindMapScreen';
-import StatsScreen from '../screens/stats/StatsScreen';
 import BehaviorsScreen from '../screens/behaviors/BehaviorsScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 
@@ -29,7 +28,6 @@ function TabIcon({ name, focused }: { name: string; focused: boolean }) {
     Home: '🏠',
     JournalHome: '✍️',
     MindMap: '🧠',
-    Stats: '📊',
     Behaviors: '🎯',
     Profile: '👤',
   };
@@ -78,10 +76,7 @@ export function MainTabNavigator() {
       <Tab.Screen
         name="Home"
         component={HomeScreen}
-        options={{ 
-          title: 'Home',
-          tabBarStyle: { display: 'none' } // Hide tab bar on Home screen
-        }}
+        options={{ title: 'Home' }}
       />
       <Tab.Screen
         name="JournalHome"
@@ -92,11 +87,6 @@ export function MainTabNavigator() {
         name="MindMap"
         component={MindMapScreen}
         options={{ title: 'Mind Map' }}
-      />
-      <Tab.Screen
-        name="Stats"
-        component={StatsScreen}
-        options={{ title: 'Stats' }}
       />
       <Tab.Screen
         name="Behaviors"
