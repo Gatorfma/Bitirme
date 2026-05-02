@@ -102,6 +102,7 @@ export interface StatsOverview {
   sentimentTrend: SentimentDataPoint[];
   emotionBreakdown: EmotionData[];
   weeklyActivity: DailyCount[];
+  activeDates?: string[]; // ISO date strings (YYYY-MM-DD)
 }
 
 // Behaviors & Interventions
@@ -131,4 +132,3 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
 }
-

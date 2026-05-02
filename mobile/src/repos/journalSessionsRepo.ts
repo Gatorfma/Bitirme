@@ -13,6 +13,7 @@ export async function updateSessionSummaryAndThoughts(params: {
   sessionId: string;
   summary: string;
   thoughts: Array<{ text: string; timestamp?: string; confidence?: number }>;
+  setPostProcessedAt?: boolean;
 }): Promise<void> {
   try {
     console.log('[JournalSessionsRepo] Updating session summary and thoughts:', {

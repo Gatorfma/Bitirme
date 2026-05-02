@@ -1,15 +1,58 @@
 /**
  * Auth Store
- * Zustand store for authentication state management
- * Persists auth token using Expo SecureStore
+ * Zustand store for authentication state management.
+ * Source of truth for user identity is the `profiles` table.
+ * Session persistence is handled by Supabase via AsyncStorage.
  */
 
 import { create } from 'zustand';
-import * as SecureStore from 'expo-secure-store';
+import { supabase } from '../lib/supabase';
 import type { User } from '../types/models';
 
-const AUTH_TOKEN_KEY = 'mindjournal_auth_token';
-const USER_DATA_KEY = 'mindjournal_user_data';
+// ─── Profile helpers ──────────────────────────────────────────────────────────
+
+type ProfileRow = {
+  display_name: string | null;
+  avatar_url: string | null;
+  is_onboarded: boolean;
+};
+
+/**
+ * Fetch the profiles row for a given user ID.
+ * Returns null if not found (e.g. trigger hasn't run yet).
+ */
+async function fetchProfile(userId: string): Promise<ProfileRow | null> {
+  const { data } = await supabase
+    .from('profiles')
+    .select('display_name, avatar_url, is_onboarded')
+    .eq('id', userId)
+    .single();
+  return data ?? null;
+}
+
+/**
+ * Build our User model from a Supabase auth user + its profiles row.
+ */
+function buildUser(
+  supabaseUser: NonNullable<Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user']>,
+  profile: ProfileRow | null
+): User {
+  return {
+    id: supabaseUser.id,
+    email: supabaseUser.email ?? '',
+    // Prefer profiles table; fall back to signup metadata
+    displayName:
+      profile?.display_name ??
+      supabaseUser.user_metadata?.display_name ??
+      supabaseUser.email ??
+      '',
+    avatarUrl: profile?.avatar_url ?? undefined,
+    createdAt: supabaseUser.created_at,
+    isOnboarded: profile?.is_onboarded ?? false,
+  };
+}
+
+// ─── Store ────────────────────────────────────────────────────────────────────
 
 interface AuthState {
   // State
@@ -18,7 +61,7 @@ interface AuthState {
   isOnboarded: boolean;
   isLoading: boolean;
   isInitialized: boolean;
-  
+
   // Actions
   login: (token: string, user: User) => Promise<void>;
   logout: () => Promise<void>;
@@ -27,45 +70,7 @@ interface AuthState {
   initialize: () => Promise<void>;
 }
 
-/**
- * Helper to safely get item from SecureStore
- */
-async function safeGetItem(key: string): Promise<string | null> {
-  try {
-    return await SecureStore.getItemAsync(key);
-  } catch (error) {
-    console.warn(`Failed to get ${key} from SecureStore:`, error);
-    return null;
-  }
-}
-
-/**
- * Helper to safely set item in SecureStore
- */
-async function safeSetItem(key: string, value: string): Promise<void> {
-  try {
-    await SecureStore.setItemAsync(key, value);
-  } catch (error) {
-    console.warn(`Failed to set ${key} in SecureStore:`, error);
-  }
-}
-
-/**
- * Helper to safely delete item from SecureStore
- */
-async function safeDeleteItem(key: string): Promise<void> {
-  try {
-    await SecureStore.deleteItemAsync(key);
-  } catch (error) {
-    console.warn(`Failed to delete ${key} from SecureStore:`, error);
-  }
-}
-
-/**
- * Auth store with persistence
- */
 export const useAuthStore = create<AuthState>((set, get) => ({
-  // Initial state
   token: null,
   user: null,
   isOnboarded: false,
@@ -73,111 +78,97 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isInitialized: false,
 
   /**
-   * Login user and persist credentials
+   * Store the session returned after login/register.
    */
   login: async (token: string, user: User) => {
-    // Store token securely
-    await safeSetItem(AUTH_TOKEN_KEY, token);
-    // Store user data
-    await safeSetItem(USER_DATA_KEY, JSON.stringify(user));
-    
-    set({
-      token,
-      user,
-      isOnboarded: user.isOnboarded,
-    });
+    set({ token, user, isOnboarded: user.isOnboarded });
   },
 
   /**
-   * Logout user and clear persisted credentials
+   * Sign out from Supabase and clear local state.
    */
   logout: async () => {
-    await safeDeleteItem(AUTH_TOKEN_KEY);
-    await safeDeleteItem(USER_DATA_KEY);
-    
-    set({
-      token: null,
-      user: null,
-      isOnboarded: false,
-    });
+    await supabase.auth.signOut();
+    set({ token: null, user: null, isOnboarded: false });
   },
 
   /**
-   * Update user data
+   * Update user in local state (e.g. after profile edit).
    */
   setUser: (user: User) => {
     set({ user, isOnboarded: user.isOnboarded });
-    // Persist updated user data
-    safeSetItem(USER_DATA_KEY, JSON.stringify(user));
   },
 
   /**
-   * Set onboarding status
+   * Mark onboarding complete — writes to profiles table (source of truth).
    */
   setOnboarded: async (value: boolean) => {
     const { user } = get();
-    if (user) {
-      const updatedUser = { ...user, isOnboarded: value };
-      set({ isOnboarded: value, user: updatedUser });
-      await safeSetItem(USER_DATA_KEY, JSON.stringify(updatedUser));
-    } else {
-      set({ isOnboarded: value });
+    if (!user) return;
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ is_onboarded: value })
+      .eq('id', user.id);
+
+    if (error) {
+      console.error('[Auth] Failed to update onboarding status:', error.message);
+      return;
     }
+
+    set({ isOnboarded: value, user: { ...user, isOnboarded: value } });
   },
 
   /**
-   * Initialize auth state from storage
-   * Call this when app starts
+   * Restore session on app start.
+   * 1. Gets Supabase session (rehydrated from AsyncStorage automatically).
+   * 2. Fetches the profiles row for full user data.
+   * 3. Subscribes to auth state changes for token refreshes / sign-outs.
    */
   initialize: async () => {
-    console.log('Initializing auth state...');
+    console.log('[Auth] Initializing...');
     set({ isLoading: true });
-    
+
     try {
-      const [token, userData] = await Promise.all([
-        safeGetItem(AUTH_TOKEN_KEY),
-        safeGetItem(USER_DATA_KEY),
-      ]);
-      
-      console.log('Auth data loaded:', { hasToken: !!token, hasUserData: !!userData });
-      
-      if (token && userData) {
-        try {
-          const user = JSON.parse(userData) as User;
-          set({
-            token,
-            user,
-            isOnboarded: user.isOnboarded,
-            isLoading: false,
-            isInitialized: true,
-          });
-        } catch (parseError) {
-          console.error('Failed to parse user data:', parseError);
-          set({
-            isLoading: false,
-            isInitialized: true,
-          });
-        }
-      } else {
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (session?.user) {
+        const profile = await fetchProfile(session.user.id);
+        const user = buildUser(session.user, profile);
+        console.log('[Auth] Session restored for:', user.email);
         set({
+          token: session.access_token,
+          user,
+          isOnboarded: user.isOnboarded,
           isLoading: false,
           isInitialized: true,
         });
+      } else {
+        console.log('[Auth] No existing session');
+        set({ isLoading: false, isInitialized: true });
       }
-    } catch (error) {
-      console.error('Failed to initialize auth state:', error);
-      // Always set initialized to true so the app can proceed
-      set({
-        isLoading: false,
-        isInitialized: true,
+
+      // Stay in sync with Supabase token refreshes and sign-outs
+      supabase.auth.onAuthStateChange(async (_event, session) => {
+        if (session?.user) {
+          const profile = await fetchProfile(session.user.id);
+          const user = buildUser(session.user, profile);
+          set({ token: session.access_token, user, isOnboarded: user.isOnboarded });
+        } else {
+          set({ token: null, user: null, isOnboarded: false });
+        }
       });
+    } catch (error) {
+      console.error('[Auth] Initialization failed:', error);
+      set({ isLoading: false, isInitialized: true });
     }
-    
-    console.log('Auth initialization complete');
+
+    console.log('[Auth] Initialization complete');
   },
 }));
 
-// Selector hooks for common patterns
+// ─── Selector hooks ───────────────────────────────────────────────────────────
+
 export const useIsAuthenticated = () => useAuthStore(state => !!state.token);
-export const useUser = () => useAuthStore(state => state.user);
-export const useIsOnboarded = () => useAuthStore(state => state.isOnboarded);
+export const useUser             = () => useAuthStore(state => state.user);
+export const useIsOnboarded      = () => useAuthStore(state => state.isOnboarded);

@@ -1,8 +1,9 @@
 /**
  * Auth API
- * Authentication endpoints with mock implementations
+ * Real authentication using Supabase Auth
  */
 
+import { supabase } from '../lib/supabase';
 import type {
   ApiResponse,
   LoginRequest,
@@ -12,111 +13,121 @@ import type {
 } from '../types';
 import type { User } from '../types/models';
 
-// Mock delay to simulate network latency
-const mockDelay = (ms: number = 800) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Mock user data
-const mockUser: User = {
-  id: 'user-1',
-  email: 'demo@mindjournal.app',
-  displayName: 'Demo User',
-  createdAt: new Date().toISOString(),
-  isOnboarded: false,
-};
+/**
+ * Build a minimal User from the Supabase auth user.
+ * Full profile data (display_name, is_onboarded) is loaded separately
+ * from the profiles table inside authStore.
+ */
+function mapSupabaseUser(
+  supabaseUser: NonNullable<Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user']>
+): User {
+  return {
+    id: supabaseUser.id,
+    email: supabaseUser.email ?? '',
+    displayName: supabaseUser.user_metadata?.display_name ?? supabaseUser.email ?? '',
+    createdAt: supabaseUser.created_at,
+    isOnboarded: false, // authStore will overwrite this from the profiles table
+  };
+}
 
 /**
  * Login with email and password
- * Currently returns mock data
  */
 export async function login(
   request: LoginRequest
 ): Promise<ApiResponse<LoginResponse>> {
-  await mockDelay();
-  
-  // Mock validation
   if (!request.email || !request.password) {
-    return {
-      success: false,
-      error: 'Email and password are required',
-    };
+    return { success: false, error: 'Email and password are required' };
   }
-  
-  // Mock successful login
-  // In production, this would call: api.post<LoginResponse>('/auth/login', request)
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: request.email.trim(),
+    password: request.password,
+  });
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  if (!data.user || !data.session) {
+    return { success: false, error: 'Login failed — no session returned' };
+  }
+
   return {
     success: true,
     data: {
-      user: { ...mockUser, email: request.email },
-      token: 'mock-jwt-token-' + Date.now(),
+      user: mapSupabaseUser(data.user),
+      token: data.session.access_token,
     },
   };
 }
 
 /**
  * Register a new account
- * Currently returns mock data
  */
 export async function register(
   request: RegisterRequest
 ): Promise<ApiResponse<RegisterResponse>> {
-  await mockDelay();
-  
-  // Mock validation
   if (!request.email || !request.password || !request.displayName) {
-    return {
-      success: false,
-      error: 'All fields are required',
-    };
+    return { success: false, error: 'All fields are required' };
   }
-  
+
   if (request.password.length < 6) {
+    return { success: false, error: 'Password must be at least 6 characters' };
+  }
+
+  const { data, error } = await supabase.auth.signUp({
+    email: request.email.trim(),
+    password: request.password,
+    options: {
+      data: {
+        display_name: request.displayName.trim(),
+        is_onboarded: false,
+      },
+    },
+  });
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  if (!data.user) {
+    return { success: false, error: 'Registration failed' };
+  }
+
+  // If email confirmation is disabled (recommended for dev), session is available immediately.
+  // If email confirmation is enabled, session will be null until confirmed.
+  if (!data.session) {
     return {
       success: false,
-      error: 'Password must be at least 6 characters',
+      error: 'Please check your email to confirm your account before signing in.',
     };
   }
-  
-  // Mock successful registration
-  // In production, this would call: api.post<RegisterResponse>('/auth/register', request)
+
   return {
     success: true,
     data: {
-      user: {
-        ...mockUser,
-        id: 'user-' + Date.now(),
-        email: request.email,
-        displayName: request.displayName,
-        isOnboarded: false,
-      },
-      token: 'mock-jwt-token-' + Date.now(),
+      user: mapSupabaseUser(data.user),
+      token: data.session.access_token,
     },
   };
 }
 
 /**
  * Logout current user
- * In production, this might invalidate the token on the server
  */
 export async function logout(): Promise<ApiResponse<void>> {
-  await mockDelay(300);
-  
-  // Mock successful logout
-  return {
-    success: true,
-  };
+  const { error } = await supabase.auth.signOut();
+  if (error) return { success: false, error: error.message };
+  return { success: true };
 }
 
 /**
- * Get current user profile
- * Currently returns mock data
+ * Get current user profile from Supabase
  */
 export async function getCurrentUser(): Promise<ApiResponse<User>> {
-  await mockDelay(500);
-  
-  // In production, this would call: api.get<User>('/auth/me')
-  return {
-    success: true,
-    data: mockUser,
-  };
+  const { data, error } = await supabase.auth.getUser();
+  if (error) return { success: false, error: error.message };
+  if (!data.user) return { success: false, error: 'No authenticated user' };
+  return { success: true, data: mapSupabaseUser(data.user) };
 }
-

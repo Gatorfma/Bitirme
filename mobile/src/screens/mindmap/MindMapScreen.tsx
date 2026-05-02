@@ -1,15 +1,16 @@
 /**
  * MindMapScreen
  * 3D visual representation of thought categories using Three.js
- * Camera always focuses on center; supports rotation and zoom only.
+ * Data is refreshed from the database every time the screen is focused.
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import {
   View, Text, StyleSheet, TouchableOpacity, Dimensions, Modal,
-  FlatList, Pressable, TouchableWithoutFeedback, SafeAreaView
+  FlatList, Pressable, TouchableWithoutFeedback
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { GLView } from 'expo-gl';
 import { Renderer } from 'expo-three';
 import * as THREE from 'three';
@@ -20,13 +21,14 @@ import { getActiveCategories } from '../../repos/categoriesRepo';
 import { getThoughtsByActiveCategory } from '../../repos/thoughtItemsRepo';
 import type { ThoughtCategory } from '../../types/models';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: WINDOW_HEIGHT } = Dimensions.get('window');
+const { height: SCREEN_HEIGHT } = Dimensions.get('screen'); // Full hardware height
 const CHART_SIZE = SCREEN_WIDTH - 40;
 
 // Performance tuning
 const TARGET_FPS = 30;
 const MIN_FRAME_INTERVAL = 1000 / TARGET_FPS;
-const LABEL_UPDATE_INTERVAL = 60; // ms, ~16fps label updates for smoothness
+const LABEL_UPDATE_INTERVAL = 60; 
 const NODE_OUTLINE_SCALE = 1.08;
 const MAX_VISIBLE_LABELS = 7;
 const LABEL_MIN_GAP = 42;
@@ -70,49 +72,20 @@ function hashStringToUnit(value: string): number {
   return ((hash >>> 0) % 1000) / 1000;
 }
 
-function fibonacciSphere(n: number, radius: number): THREE.Vector3[] {
-  const points: THREE.Vector3[] = [];
-  const goldenRatio = (1 + Math.sqrt(5)) / 2;
-  for (let i = 0; i < n; i++) {
-    const theta = Math.acos(1 - (2 * (i + 0.5)) / n);
-    const phi = (2 * Math.PI * i) / goldenRatio;
-    points.push(new THREE.Vector3(
-      radius * Math.sin(theta) * Math.cos(phi),
-      radius * Math.cos(theta),
-      radius * Math.sin(theta) * Math.sin(phi),
-    ));
-  }
-  return points;
-}
-
 function generateNodes3D(categories: ThoughtCategory[]): MindMapNode3D[] {
   if (categories.length === 0) return [];
   const counts = categories.map(c => c.thoughtCount);
   const maxThoughts = Math.max(...counts, 1);
-  // find top and second-top counts
   const sortedCounts = [...counts].sort((a, b) => b - a);
   const topCount = sortedCounts[0] ?? 0;
-  // find the highest count strictly less than topCount (handles ties)
   const secondCount = sortedCounts.find(c => c < topCount) ?? topCount;
 
-  // Desired size rule: top size = 2x second-top size
-  // We'll compute a base size from the 2nd place and make top = 2*base.
   const MIN_SIZE = 0.12;
   const MAX_SIZE = 0.6;
-
-  // Choose a sensible base for the second place relative to overall distribution
-  // Map counts -> preliminary weights then derive sizes
   const baseForSecond = Math.max(1, secondCount);
 
-  // precompute unit sizes for each category based on count, but enforce ratio
-  const unitSizes = categories.map(cat => ({ id: cat.id, count: cat.thoughtCount, unit: Math.max(1, cat.thoughtCount) }));
-
-  // compute size for second place (as reference)
   const secondSize = Math.max(MIN_SIZE, Math.min(MAX_SIZE, 0.18 + (baseForSecond / maxThoughts) * 0.28));
   const topSize = Math.max(MIN_SIZE, Math.min(MAX_SIZE, secondSize * 2));
-
-  // positions on a unit sphere; we'll scale per-node radius later
-  const positions = fibonacciSphere(categories.length, 1.0);
 
   const centerNode: MindMapNode3D = {
     id: 'center',
@@ -123,10 +96,6 @@ function generateNodes3D(categories: ThoughtCategory[]): MindMapNode3D[] {
     connections: categories.map(c => c.id),
   };
 
-  // Determine per-category size and radius scaling
-  // We'll assign the top category explicitly to topSize, second to secondSize,
-  // and interpolate others between MIN_SIZE and MAX_SIZE proportional to count.
-  // Group categories by identical thoughtCount so they share orbit radii
   const groupsByCount = new Map<number, ThoughtCategory[]>();
   for (const cat of categories) {
     const arr = groupsByCount.get(cat.thoughtCount) || [];
@@ -134,14 +103,12 @@ function generateNodes3D(categories: ThoughtCategory[]): MindMapNode3D[] {
     groupsByCount.set(cat.thoughtCount, arr);
   }
 
-  const uniqueCounts = Array.from(groupsByCount.keys()).sort((a, b) => b - a); // descending
+  const uniqueCounts = Array.from(groupsByCount.keys()).sort((a, b) => b - a);
   const groupCount = uniqueCounts.length;
 
-  // orbit range
-  const innerOrbit = 1.8; // closest orbit radius (for highest counts)
-  const outerOrbit = 4.2; // farthest orbit radius (for lowest counts)
+  const innerOrbit = 1.8;
+  const outerOrbit = 4.2;
 
-  // precompute per-category orbitAngle and orbitRadius
   const orbitRadiusByCount = new Map<number, number>();
   const orbitAnglesById = new Map<string, number>();
   const inclinationById = new Map<string, number>();
@@ -159,11 +126,8 @@ function generateNodes3D(categories: ThoughtCategory[]): MindMapNode3D[] {
     }
   });
 
-  const categoryNodes: MindMapNode3D[] = categories.map((cat, i) => {
-    // base size scaled from count
+  const categoryNodes: MindMapNode3D[] = categories.map((cat) => {
     let size = Math.max(MIN_SIZE, Math.min(MAX_SIZE, 0.18 + (cat.thoughtCount / maxThoughts) * 0.28));
-
-    // if this category has the max count (ties allowed), use topSize
     if (cat.thoughtCount === topCount) size = topSize;
     else if (cat.thoughtCount === secondCount) size = secondSize;
 
@@ -209,7 +173,6 @@ const CATEGORY_COLORS = [
   '#C4A484', '#A8D5BA', '#F4A261', '#E76F51',
   '#2A9D8F', '#264653',
 ];
-const CATEGORY_ICONS = ['💼', '❤️', '🏥', '🌱', '😰', '🎯', '🌟', '💡', '🎨', '🔮'];
 
 // ─── 3D Visualization ─────────────────────────────────────────────────────────
 
@@ -226,7 +189,7 @@ function MindMapVisualization3D({
   const [labels, setLabels] = useState<LabelData[]>([]);
 
   const currentWidth  = isFullscreen ? SCREEN_WIDTH  : CHART_SIZE;
-  const currentHeight = isFullscreen ? SCREEN_HEIGHT : CHART_SIZE;
+  const currentHeight = isFullscreen ? WINDOW_HEIGHT : CHART_SIZE;
 
   const rendererRef = useRef<Renderer | null>(null);
   const sceneRef    = useRef<THREE.Scene | null>(null);
@@ -259,9 +222,6 @@ function MindMapVisualization3D({
         }
         scene.remove(c);
       });
-
-    // We'll create orbiting node pivots below; per-node lines (orbit connectors)
-    // will be attached to each pivot so they rotate with the node.
 
     const starPositions = new Float32Array(STAR_COUNT * 3);
     for (let i = 0; i < STAR_COUNT; i++) {
@@ -354,10 +314,8 @@ function MindMapVisualization3D({
       scene.add(nebula);
     }
 
-    // Prepare a node map for runtime access (pivot/mesh lookup)
     scene.userData.nodeMap = {};
 
-    // Create dashed orbit rings for each distinct orbit radius (visual guides)
     const orbitGroups = new Map<number, number[]>();
     for (const n of nodes) {
       if (n.id === 'center') continue;
@@ -432,12 +390,10 @@ function MindMapVisualization3D({
         return;
       }
 
-      // Create a pivot so the node can orbit around the center
       const pivot = new THREE.Object3D();
       pivot.userData.removable = true;
       pivot.userData.nodeId = node.id;
 
-      // Use precomputed orbit angle/radius/inclination when available
       const inclination = node.orbitInclination ?? (hashStringToUnit(node.id + ':orbit') - 0.5) * 0.18;
       const startAngle = node.orbitAngle ?? hashStringToUnit(node.id + ':orbit') * Math.PI * 2;
       const orbitRadius = node.orbitRadius ?? node.position.length();
@@ -496,7 +452,6 @@ function MindMapVisualization3D({
             vec3 shadeB = base * 1.2;
             vec3 planet = mix(shadeA, shadeB, bandSoft * 0.65 + craterMask * 0.35);
 
-            // 0 = rocky, 1 = gas giant, 2 = ice, 3 = lava
             if (uType < 0.5) {
               vec3 rockTint = mix(vec3(0.44, 0.40, 0.36), base, 0.45);
               planet = mix(rockTint * 0.7, rockTint * 1.2, n);
@@ -536,10 +491,6 @@ function MindMapVisualization3D({
       mesh.userData.nodeId    = node.id;
       pivot.add(mesh);
 
-      // connector lines removed per request — orbit rings provide visual guides
-
-      // atmosphere and other visuals should follow the mesh; place atmosphere at same local position
-
       const atmosphereMat = new THREE.MeshBasicMaterial({
         color: hexToThreeColor(node.color),
         transparent: true,
@@ -553,7 +504,6 @@ function MindMapVisualization3D({
       atmosphereMesh.userData.removable = true;
       pivot.add(atmosphereMesh);
 
-      // add pivot to scene and register in nodeMap
       scene.add(pivot);
       scene.userData.nodeMap[node.id] = { pivot, mesh };
     });
@@ -564,7 +514,6 @@ function MindMapVisualization3D({
     glRef.current = gl;
 
     const renderer = new Renderer({ gl });
-    // IMPORTANT: Set size to physical pixels (drawing buffer) to fill the screen correctly
     renderer.setSize(gl.drawingBufferWidth, gl.drawingBufferHeight);
     renderer.setClearColor(0x030712, 1);
     rendererRef.current = renderer;
@@ -601,20 +550,16 @@ function MindMapVisualization3D({
       );
       cameraRef.current.lookAt(0, 0, 0);
 
-      // rotate pivots to animate orbits
       try {
         const map = sceneRef.current.userData.nodeMap || {};
         const keys = Object.keys(map);
         for (let k = 0; k < keys.length; k++) {
           const item = map[keys[k]];
           if (!item || !item.pivot) continue;
-          // orbit speed inversely proportional to radius for variety
-          const radius = item.mesh.position.length() || 1;
-          item.pivot.rotation.y += 0.0018 * (1.6 / Math.max(0.6, radius));
+          const orbitRad = item.mesh.position.length() || 1;
+          item.pivot.rotation.y += 0.0018 * (1.6 / Math.max(0.6, orbitRad));
         }
-      } catch (err) {
-        // ignore
-      }
+      } catch (err) {}
 
       rendererRef.current.render(sceneRef.current, cameraRef.current);
       gl.endFrameEXP();
@@ -622,7 +567,6 @@ function MindMapVisualization3D({
       if (now - lastLabelUpdateRef.current > LABEL_UPDATE_INTERVAL) {
         lastLabelUpdateRef.current = now;
         const cam = cameraRef.current;
-        // Update node positions from their mesh world positions so labels follow orbits
         try {
           const map = sceneRef.current.userData.nodeMap || {};
           for (const n of nodes) {
@@ -632,9 +576,8 @@ function MindMapVisualization3D({
               entry.mesh.getWorldPosition(n.position);
             }
           }
-        } catch (err) {
-          // ignore
-        }
+        } catch (err) {}
+        
         const candidates = nodes
           .map(node => {
             const projected = node.position.clone().project(cam);
@@ -662,7 +605,6 @@ function MindMapVisualization3D({
           ));
 
         const sorted = candidates.sort((a, b) => a.distance - b.distance);
-
         const selected: typeof candidates = [];
 
         for (const candidate of sorted) {
@@ -706,7 +648,6 @@ function MindMapVisualization3D({
     if (sceneRef.current) buildScene();
   }, [nodes, buildScene]);
 
-  // Reset camera to default on mount and when `resetSignal` changes
   useEffect(() => {
     const DEFAULT = { theta: 0.4, phi: 1.1, radius: 12.0 };
     spherical.current.theta = DEFAULT.theta;
@@ -758,24 +699,18 @@ function MindMapVisualization3D({
         touches[0].pageY - touches[1].pageY,
       );
       const delta = lastPinchDist.current - dist;
-      // allow farther zoom-out by increasing max radius
       spherical.current.radius = Math.max(3, Math.min(28, spherical.current.radius + delta * 0.04));
       lastPinchDist.current = dist;
     }
   };
 
-  // ── Tap detection ───────────────────────────────────────────────────────────
-
   const handleTap = (e: any) => {
     if (!cameraRef.current || !sceneRef.current) return;
     const { locationX, locationY } = e.nativeEvent;
-
     const ndcX =  (locationX / currentWidth)  * 2 - 1;
     const ndcY = -(locationY / currentHeight) * 2 + 1;
-
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera({ x: ndcX, y: ndcY }, cameraRef.current);
-
     const meshes = sceneRef.current.children.filter(c => c instanceof THREE.Mesh && c.userData.nodeId);
     const hits = raycaster.intersectObjects(meshes);
     if (hits.length > 0) {
@@ -792,12 +727,9 @@ function MindMapVisualization3D({
       onTouchEnd={() => { lastTouch.current = null; lastPinchDist.current = null; }}
     >
       <GLView style={StyleSheet.absoluteFill} onContextCreate={onContextCreate} />
-
       <TouchableWithoutFeedback onPress={handleTap}>
         <View style={StyleSheet.absoluteFill} />
       </TouchableWithoutFeedback>
-
-      {/* Overlay Labels */}
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
         {labels.map(l => (
           <Pressable
@@ -829,14 +761,14 @@ function MindMapVisualization3D({
           </Pressable>
         ))}
       </View>
-
-      <TouchableOpacity
-        style={[styles.fullscreenButton, isFullscreen && styles.fullscreenButtonExit]}
-        onPress={() => setIsFullscreen(!isFullscreen)}
-      >
-        <Text style={styles.fullscreenButtonText}>{isFullscreen ? '↙️' : '↗️'}</Text>
-      </TouchableOpacity>
-
+      {!isFullscreen && (
+        <TouchableOpacity
+          style={styles.fullscreenButton}
+          onPress={() => setIsFullscreen(true)}
+        >
+          <Text style={styles.fullscreenButtonText}>↗️</Text>
+        </TouchableOpacity>
+      )}
       <View style={styles.hintBadge} pointerEvents="none">
         <Text style={styles.hintText}>Rotate & Zoom · Tap Nodes</Text>
       </View>
@@ -845,9 +777,21 @@ function MindMapVisualization3D({
 
   if (isFullscreen) {
     return (
-      <Modal visible transparent={false} animationType="fade">
-        <View style={{ flex: 1, backgroundColor: '#1a1a2e' }}>
+      <Modal 
+        visible 
+        transparent={false} 
+        animationType="fade" 
+        statusBarTranslucent
+        presentationStyle="overFullScreen"
+      >
+        <View style={{ flex: 1, backgroundColor: '#030712' }}>
           <SafeAreaView style={{ flex: 1 }}>{MapContent}</SafeAreaView>
+          <TouchableOpacity
+            style={styles.minimizeButton}
+            onPress={() => setIsFullscreen(false)}
+          >
+            <Text style={styles.minimizeButtonText}>✕</Text>
+          </TouchableOpacity>
         </View>
       </Modal>
     );
@@ -855,8 +799,6 @@ function MindMapVisualization3D({
 
   return <View style={styles.chartContainer}>{MapContent}</View>;
 }
-
-// ─── Empty State ──────────────────────────────────────────────────────────────
 
 function EmptyState() {
   return (
@@ -877,12 +819,7 @@ export default function MindMapScreen() {
   const [nodes, setNodes]             = useState<MindMapNode3D[]>([]);
   const [isLoading, setIsLoading]     = useState(true);
   const [error, setError]             = useState<string | null>(null);
-
-  // Signal toggled when screen is focused so the embedded visualization can reset camera
   const [resetSignal, setResetSignal] = useState(0);
-  useFocusEffect(useCallback(() => {
-    setResetSignal(s => s + 1);
-  }, [nodes]));
 
   const [isThoughtsModalVisible,     setIsThoughtsModalVisible]     = useState(false);
   const [selectedCategory,           setSelectedCategory]           = useState<{id:string;name:string}|null>(null);
@@ -890,27 +827,33 @@ export default function MindMapScreen() {
   const [isThoughtsLoading,          setIsThoughtsLoading]          = useState(false);
   const [isAllCategoriesModalVisible,setIsAllCategoriesModalVisible]= useState(false);
 
-  useEffect(() => {
-    async function loadCategories() {
-      try {
-        setIsLoading(true);
-        const activeCategories = await getActiveCategories();
-        const thoughtCategories: ThoughtCategory[] = activeCategories.map((cat, i) => ({
-          id: cat.id,
-          name: cat.name,
-          color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
-          thoughtCount: cat.thought_count,
-        }));
-        setCategories(thoughtCategories);
-        setNodes(generateNodes3D(thoughtCategories.slice(0, 12)));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load categories');
-      } finally {
-        setIsLoading(false);
+  useFocusEffect(
+    useCallback(() => {
+      let isMounted = true;
+      async function loadCategories() {
+        try {
+          if (categories.length === 0) setIsLoading(true);
+          const activeCategories = await getActiveCategories();
+          if (!isMounted) return;
+          const thoughtCategories: ThoughtCategory[] = activeCategories.map((cat, i) => ({
+            id: cat.id,
+            name: cat.name,
+            color: CATEGORY_COLORS[i % CATEGORY_COLORS.length],
+            thoughtCount: cat.thought_count,
+          }));
+          setCategories(thoughtCategories);
+          setNodes(generateNodes3D(thoughtCategories.slice(0, 12)));
+          setResetSignal(s => s + 1);
+        } catch (err) {
+          if (isMounted) setError(err instanceof Error ? err.message : 'Failed to load');
+        } finally {
+          if (isMounted) setIsLoading(false);
+        }
       }
-    }
-    loadCategories();
-  }, []);
+      loadCategories();
+      return () => { isMounted = false; };
+    }, [categories.length])
+  );
 
   const handleCategoryTap = async (categoryId: string) => {
     const category = categories.find(c => c.id === categoryId);
@@ -931,35 +874,42 @@ export default function MindMapScreen() {
   if (isLoading) return <ScreenContainer><LoadingSpinner message="Loading mind map..." /></ScreenContainer>;
 
   return (
-    <ScreenContainer scrollable>
-      <AppHeader title="Mind Map" subtitle="Visualize your thoughts" />
-
-      {nodes.length > 0 ? (
-        <>
-          <MindMapVisualization3D nodes={nodes} onCategoryTap={handleCategoryTap} resetSignal={resetSignal} />
-
-          <View style={styles.legend}>
-            <View style={styles.legendHeader}>
-              <Text style={styles.legendTitle}>Categories</Text>
-              {categories.length > 5 && (
-                <Pressable onPress={() => setIsAllCategoriesModalVisible(true)}>
-                  <Text style={styles.seeAllButton}>See all</Text>
-                </Pressable>
-              )}
+    <>
+      <ScreenContainer scrollable>
+        <AppHeader title="Mind Map" subtitle="Visualize your thoughts" />
+        {nodes.length > 0 ? (
+          <>
+            <MindMapVisualization3D nodes={nodes} onCategoryTap={handleCategoryTap} resetSignal={resetSignal} />
+            <View style={styles.legend}>
+              <View style={styles.legendHeader}>
+                <Text style={styles.legendTitle}>Categories</Text>
+                {categories.length > 5 && (
+                  <Pressable onPress={() => setIsAllCategoriesModalVisible(true)}>
+                    <Text style={styles.seeAllButton}>See all</Text>
+                  </Pressable>
+                )}
+              </View>
+              {categories.slice(0, 5).map(cat => (
+                <TouchableOpacity key={cat.id} style={styles.legendItem} onPress={() => handleCategoryTap(cat.id)}>
+                  <View style={[styles.legendDot, { backgroundColor: cat.color }]} />
+                  <Text style={styles.legendLabel}>{cat.name}</Text>
+                  <Text style={styles.legendCount}>{cat.thoughtCount}</Text>
+                </TouchableOpacity>
+              ))}
             </View>
-            {categories.slice(0, 5).map(cat => (
-              <TouchableOpacity key={cat.id} style={styles.legendItem} onPress={() => handleCategoryTap(cat.id)}>
-                <View style={[styles.legendDot, { backgroundColor: cat.color }]} />
-                <Text style={styles.legendLabel}>{cat.name}</Text>
-                <Text style={styles.legendCount}>{cat.thoughtCount}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </>
-      ) : <EmptyState />}
+          </>
+        ) : <EmptyState />}
+      </ScreenContainer>
 
-      {/* Modals for thoughts and category listing */}
-      <Modal visible={isThoughtsModalVisible} transparent animationType="fade" onRequestClose={() => setIsThoughtsModalVisible(false)}>
+      {/* Thoughts Modal */}
+      <Modal 
+        visible={isThoughtsModalVisible} 
+        transparent 
+        animationType="fade" 
+        statusBarTranslucent
+        presentationStyle="overFullScreen"
+        onRequestClose={() => setIsThoughtsModalVisible(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
@@ -991,7 +941,15 @@ export default function MindMapScreen() {
         </View>
       </Modal>
 
-      <Modal visible={isAllCategoriesModalVisible} transparent animationType="fade" onRequestClose={() => setIsAllCategoriesModalVisible(false)}>
+      {/* All Categories Modal */}
+      <Modal 
+        visible={isAllCategoriesModalVisible} 
+        transparent 
+        animationType="fade" 
+        statusBarTranslucent
+        presentationStyle="overFullScreen"
+        onRequestClose={() => setIsAllCategoriesModalVisible(false)}
+      >
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
@@ -1022,11 +980,9 @@ export default function MindMapScreen() {
           </View>
         </View>
       </Modal>
-    </ScreenContainer>
+    </>
   );
 }
-
-// ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   chartContainer:        { position:'relative', alignItems:'center', marginVertical:20 },
@@ -1045,7 +1001,17 @@ const styles = StyleSheet.create({
   emptyEmoji:            { fontSize:64, marginBottom:16 },
   emptyTitle:            { fontSize:22, fontWeight:'bold', color:'#2D3436', marginBottom:8 },
   emptyText:             { fontSize:15, color:'#636E72', textAlign:'center', lineHeight:22 },
-  modalOverlay:          { flex:1, backgroundColor:'rgba(0, 0, 0, 0.4)', justifyContent:'center', alignItems:'center' },
+  modalOverlay: { 
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: SCREEN_WIDTH,
+    height: SCREEN_HEIGHT,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)', 
+    justifyContent:'center', 
+    alignItems:'center',
+    zIndex: 1000,
+  },
   modalCard:             { width:'92%', maxHeight:'80%', backgroundColor:'#fff', borderRadius:18, overflow:'hidden' },
   modalHeader:           { paddingHorizontal:16, paddingTop:16, paddingBottom:12, flexDirection:'row', alignItems:'center', justifyContent:'space-between' },
   modalTitle:            { fontSize:18, fontWeight:'700' },
@@ -1063,6 +1029,7 @@ const styles = StyleSheet.create({
   categoryModalName:     { flex:1, fontSize:15, color:'#2D3436', marginLeft:12 },
   categoryModalCount:    { fontSize:14, color:'#636E72', fontWeight:'500' },
   fullscreenButton:      { position:'absolute', bottom:12, right:12, backgroundColor:'rgba(0,0,0,0.3)', width:40, height:44, borderRadius:20, justifyContent:'center', alignItems:'center', zIndex:100 },
-  fullscreenButtonExit:  { bottom:24 },
   fullscreenButtonText:  { fontSize:18 },
+  minimizeButton:        { position:'absolute', top:52, right:16, backgroundColor:'rgba(0,0,0,0.55)', width:40, height:40, borderRadius:20, justifyContent:'center', alignItems:'center', zIndex:200 },
+  minimizeButtonText:    { color:'#fff', fontSize:16, fontWeight:'700' },
 });
