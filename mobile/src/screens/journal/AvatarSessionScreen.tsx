@@ -1,7 +1,9 @@
 /**
  * AvatarSessionScreen
- * Split-screen interface with WebGL Atmosphere, Speech-to-Text (Whisper), and Text-to-Speech.
- * Enhanced with Expressive Eyebrows, Breathing Torso, and Smooth Swaying.
+ * Humanoid Avatar rewritten using Three.js for 3D expressiveness.
+ * Features: Breathing, Blinking, Separate Idle/Speaking mouths, and Vertical Bobbing.
+ * Side-to-side head movement and swaying have been removed.
+ * Integration with Whisper (STT), OpenAI, and Text-to-Speech.
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
@@ -12,7 +14,6 @@ import {
   TouchableOpacity,
   Dimensions,
   Animated,
-  SafeAreaView,
   Alert,
 } from 'react-native';
 import { useNavigation, useIsFocused } from '@react-navigation/native';
@@ -20,128 +21,19 @@ import { GLView } from 'expo-gl';
 import { StatusBar } from 'expo-status-bar';
 import { Audio } from 'expo-av';
 import * as Speech from 'expo-speech';
+import * as THREE from 'three';
+import { Renderer } from 'expo-three';
 
 import type { ChatMessage } from '../../types/models';
 import { getJournalAssistantReply } from '../../api/openaiChat';
-import { createSession, updateSession, deleteSession, hasUserMessages } from '../../journal/supabaseSessionRepo';
+import { createSession, updateSession, deleteSession } from '../../journal/supabaseSessionRepo';
 import { summarizeAndExtractThoughts } from '../../agents/journalingPostProcessor';
 import { updateSessionSummaryAndThoughts } from '../../repos/journalSessionsRepo';
 import { insertThoughtItems } from '../../repos/thoughtItemsRepo';
 import { runCategorizationForSession } from '../../agents/categorizationPipeline';
-import { useAuthStore } from '../../state/authStore';
 import { useCreateSession } from '../../hooks/useJournal';
-import { supabase } from '../../lib/supabase';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-// --- WebGL Shaders (Enhanced Humanoid Avatar) ---
-const vertSource = `
-  attribute vec2 position;
-  void main() {
-    gl_Position = vec4(position, 0.0, 1.0);
-  }
-`;
-
-const fragSource = `
-  precision mediump float;
-  uniform float time;
-  uniform vec2 resolution;
-  uniform float uIsTalking;
-  uniform float uIsRecording;
-  uniform float uIsThinking;
-
-  float circle(vec2 uv, vec2 center, float radius, float blur) {
-    float d = distance(uv, center);
-    return smoothstep(radius, radius - blur, d);
-  }
-
-  float ellipse(vec2 uv, vec2 center, float rx, float ry, float blur) {
-    vec2 p = (uv - center) / vec2(rx, ry);
-    float d = length(p);
-    return smoothstep(1.0, 1.0 - blur, d);
-  }
-
-  void main() {
-    vec2 uv = gl_FragCoord.xy / resolution.xy;
-    float aspect = resolution.x / resolution.y;
-    vec2 p = uv;
-    p.x *= aspect;
-    vec2 center = vec2(0.5 * aspect, 0.5);
-
-    // Safe, warm, and calming background gradient
-    vec3 colorTop = vec3(0.98, 0.96, 0.94);    // Warm off-white
-    vec3 colorBottom = vec3(0.90, 0.92, 0.95); // Soft morning mist
-    vec3 bgColor = mix(colorBottom, colorTop, uv.y + 0.1 * sin(time * 0.5));
-
-    vec3 silhouetteColor = vec3(0.42, 0.48, 0.55);
-    vec3 eyeColor = vec3(0.1, 0.1, 0.1);
-
-    // 1. Idle Body Sway & Breathing
-    float breathing = 0.01 * sin(time * 2.0); // Slow breathing rhythm
-    float sway = 0.005 * cos(time * 1.5);    // Very subtle side-to-side
-
-    // 2. Head Bobbing Logic
-    float bobStrength = (uIsRecording * 0.02) + (uIsTalking * 0.008);
-    float bob = bobStrength * sin(time * 10.0);
-    vec2 headPos = center + vec2(sway, 0.1 + bob);
-
-    // 3. Render Body
-    float head = ellipse(p, headPos, 0.16, 0.22, 0.005);
-    // Torso contracts/expands slightly with breathing
-    float torso = ellipse(p, center + vec2(sway * 0.5, -0.6), 0.42 + breathing, 0.45, 0.005);
-    float avatarMask = max(head, torso);
-
-    // 4. Subtle Outer Aura Glow (Dynamic with status)
-    float glowMask = max(
-      ellipse(p, headPos, 0.22, 0.28, 0.25),
-      ellipse(p, center + vec2(0.0, -0.6), 0.5, 0.55, 0.3)
-    );
-
-    // Pulse the glow slightly based on thinking or talking
-    float pulse = 0.5 + 0.5 * sin(time * 2.0);
-    float glowIntensity = 0.2 + (0.2 * uIsTalking) + (0.1 * uIsThinking * pulse);
-    vec3 glowColor = mix(bgColor, vec3(1.0, 0.98, 0.95), glowIntensity);
-    vec3 colorWithGlow = mix(bgColor, glowColor, glowMask);
-
-    vec3 finalColor = mix(colorWithGlow, silhouetteColor, avatarMask);
-
-    // 5. Eyes (Blinking)
-    float blink = step(0.97, sin(time * 0.5) * sin(time * 2.2));
-    float eyeOpenness = 1.0 - (blink * 0.95);
-    float eyes = max(
-      ellipse(p, headPos + vec2(-0.06, 0.05), 0.012, 0.012 * eyeOpenness, 0.005),
-      ellipse(p, headPos + vec2(0.06, 0.05), 0.012, 0.012 * eyeOpenness, 0.005)
-    );
-    finalColor = mix(finalColor, eyeColor, eyes);
-
-    // 6. Expressive Eyebrows
-    // Furrow when thinking, lift when talking
-    float browShift = (uIsTalking * 0.01) - (uIsThinking * 0.008);
-    float browL = ellipse(p, headPos + vec2(-0.06, 0.1 + browShift), 0.035, 0.005, 0.005);
-    float browR = ellipse(p, headPos + vec2(0.06, 0.1 + browShift), 0.035, 0.005, 0.005);
-    finalColor = mix(finalColor, eyeColor, (browL + browR) * 0.8);
-
-    // 7. Curved Mouth (Smile)
-    vec2 mPos = p - (headPos - vec2(0.0, 0.07));
-    float smileCurve = 12.0;
-    float mouthWidth = 0.04;
-
-    // When talking, we increase thickness and add a vibration
-    float talkingEffect = uIsTalking * (0.006 * sin(time * 25.0) + 0.006);
-    float thickness = 0.008 + talkingEffect;
-
-    // Parabola equation for the smile curve
-    float curveY = mPos.y - (mPos.x * mPos.x * smileCurve);
-    float mouthMask = 0.0;
-
-    if (abs(mPos.x) < mouthWidth) {
-        mouthMask = smoothstep(thickness, thickness - 0.0015, abs(curveY + 0.01));
-    }
-
-    finalColor = mix(finalColor, silhouetteColor * 0.4, mouthMask);
-    gl_FragColor = vec4(finalColor, 1.0);
-  }
-`;
 
 export default function AvatarSessionScreen() {
   const navigation = useNavigation<any>();
@@ -152,10 +44,11 @@ export default function AvatarSessionScreen() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const frameId = useRef<number | null>(null);
 
-  // High-performance Refs for WebGL
-  const isTalkingRef = useRef(0.0);
-  const isRecordingRef = useRef(0.0);
-  const isThinkingRef = useRef(0.0);
+  // Status Ref for the animation loop to avoid stale closures
+  const statusRef = useRef(status);
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   const recordingRef = useRef<Audio.Recording | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -164,54 +57,152 @@ export default function AvatarSessionScreen() {
 
   const userThoughts = messages.filter(m => m.type === 'user');
 
-  useEffect(() => {
-    isTalkingRef.current = status === 'speaking' ? 1.0 : 0.0;
-    isRecordingRef.current = status === 'recording' ? 1.0 : 0.0;
-    isThinkingRef.current = status === 'processing' ? 1.0 : 0.0;
-  }, [status]);
+  // --- Three.js Logic ---
+  const onContextCreate = async (gl: any) => {
+    const { drawingBufferWidth: width, drawingBufferHeight: height } = gl;
 
-  // --- WebGL Loop ---
-  const onContextCreate = (gl: any) => {
-    if (frameId.current) cancelAnimationFrame(frameId.current);
-    const vert = gl.createShader(gl.VERTEX_SHADER);
-    gl.shaderSource(vert, vertSource);
-    gl.compileShader(vert);
-    const frag = gl.createShader(gl.FRAGMENT_SHADER);
-    gl.shaderSource(frag, fragSource);
-    gl.compileShader(frag);
-    const program = gl.createProgram();
-    gl.attachShader(program, vert);
-    gl.attachShader(program, frag);
-    gl.linkProgram(program);
-    gl.useProgram(program);
-    const buffer = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    const verts = new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]);
-    gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
-    const positionAttrib = gl.getAttribLocation(program, 'position');
-    gl.enableVertexAttribArray(positionAttrib);
-    gl.vertexAttribPointer(positionAttrib, 2, gl.FLOAT, false, 0, 0);
+    // 1. Setup Scene, Camera, and Renderer
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xfafbfc); // Safe, warm background
 
-    const timeUniform = gl.getUniformLocation(program, 'time');
-    const resUniform = gl.getUniformLocation(program, 'resolution');
-    const talkingUniform = gl.getUniformLocation(program, 'uIsTalking');
-    const recordingUniform = gl.getUniformLocation(program, 'uIsRecording');
-    const thinkingUniform = gl.getUniformLocation(program, 'uIsThinking');
+    const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+    camera.position.z = 5;
+    camera.position.y = 0.5;
 
-    let startTime = Date.now();
+    const renderer = new Renderer({ gl });
+    renderer.setSize(width, height);
+
+    // 2. Add Lighting
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    scene.add(ambientLight);
+    
+    const frontLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    frontLight.position.set(0, 2, 5);
+    scene.add(frontLight);
+
+    // 3. Construct Avatar Group
+    const avatarGroup = new THREE.Group();
+    scene.add(avatarGroup);
+
+    // Materials
+    const skinMat = new THREE.MeshPhongMaterial({ color: 0x6b7a8c, shininess: 10 });
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x1a1a1a });
+
+    // Torso (Soft pill shape)
+    const torsoGeom = new THREE.SphereGeometry(1.6, 32, 32);
+    torsoGeom.scale(1.1, 1.4, 0.7);
+    const torso = new THREE.Mesh(torsoGeom, skinMat);
+    torso.position.y = -3.2;
+    avatarGroup.add(torso);
+
+    // Head Group (to rotate and move as one unit)
+    const headGroup = new THREE.Group();
+    headGroup.position.y = 0.6;
+    avatarGroup.add(headGroup);
+
+    const headGeom = new THREE.SphereGeometry(0.85, 32, 32);
+    headGeom.scale(1, 1.1, 0.9);
+    const headMesh = new THREE.Mesh(headGeom, skinMat);
+    headGroup.add(headMesh);
+
+    // Eyes
+    const eyeGeom = new THREE.SphereGeometry(0.07, 16, 16);
+    const leftEye = new THREE.Mesh(eyeGeom, eyeMat);
+    leftEye.position.set(-0.28, 0.15, 0.86); 
+    const rightEye = new THREE.Mesh(eyeGeom, eyeMat);
+    rightEye.position.set(0.28, 0.15, 0.86);
+    headGroup.add(leftEye, rightEye);
+
+    // Eyebrows (Capsules)
+    const browGeom = new THREE.CapsuleGeometry(0.02, 0.15, 4, 8);
+    browGeom.rotateZ(Math.PI / 2);
+    const leftBrow = new THREE.Mesh(browGeom, eyeMat);
+    leftBrow.position.set(-0.28, 0.35, 0.86);
+    const rightBrow = new THREE.Mesh(browGeom, eyeMat);
+    rightBrow.position.set(0.28, 0.35, 0.86);
+    headGroup.add(leftBrow, rightBrow);
+
+    // --- Separate Mouths ---
+    // 1. Idle Mouth (Smile shape)
+    const idleMouthGeom = new THREE.TorusGeometry(0.12, 0.015, 16, 32, Math.PI);
+    const idleMouth = new THREE.Mesh(idleMouthGeom, eyeMat);
+    idleMouth.position.set(0, -0.15, 0.86);
+    idleMouth.rotation.x = Math.PI; 
+    headGroup.add(idleMouth);
+
+    // 2. Speaking Mouth (Open shape)
+    const speakingMouthGeom = new THREE.SphereGeometry(0.08, 16, 16);
+    speakingMouthGeom.scale(1, 0.6, 0.1);
+    const speakingMouth = new THREE.Mesh(speakingMouthGeom, eyeMat);
+    speakingMouth.position.set(0, -0.2, 0.87);
+    speakingMouth.visible = false;
+    headGroup.add(speakingMouth);
+
+    // 4. Animation Loop
     const render = () => {
-      const now = Date.now();
-      const elapsed = (now - startTime) / 1000;
-      gl.uniform1f(timeUniform, elapsed);
-      gl.uniform2f(resUniform, gl.drawingBufferWidth, gl.drawingBufferHeight);
-      gl.uniform1f(talkingUniform, isTalkingRef.current);
-      gl.uniform1f(recordingUniform, isRecordingRef.current);
-      gl.uniform1f(thinkingUniform, isThinkingRef.current);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      gl.endFrameEXP();
       frameId.current = requestAnimationFrame(render);
+      const time = Date.now() * 0.001;
+      const currentStatus = statusRef.current;
+
+      // --- Idle Animations ---
+      // side-to-side swaying removed (avatarGroup.position.x and rotation.z)
+
+      // Breathing effect
+      const breath = 1.0 + Math.sin(time * 1.5) * 0.02;
+      torso.scale.set(1.1 * breath, 1.4 * breath, 0.7 * breath);
+
+      // Random Blinking
+      const blink = Math.sin(time * 0.4) * Math.sin(time * 3.1);
+      const isBlinking = blink > 0.98;
+      leftEye.scale.y = isBlinking ? 0.1 : 1.0;
+      rightEye.scale.y = isBlinking ? 0.1 : 1.0;
+
+      // --- Reactive Animations ---
+      const isTalking = currentStatus === 'speaking';
+      const isRecording = currentStatus === 'recording';
+      const isThinking = currentStatus === 'processing';
+
+      // Head Bobbing (Vertical movement only - Side sway removed)
+      const bobFreq = (isRecording || isTalking) ? 8.0 : 1.5;
+      const bobAmp = isRecording ? 0.12 : (isTalking ? 0.08 : 0.005);
+      headGroup.position.y = 0.6 + Math.sin(time * bobFreq) * bobAmp;
+
+      // Mouth logic - Switch between idle smile and talking mouth
+      if (isTalking) {
+        idleMouth.visible = false;
+        speakingMouth.visible = true;
+        // Simple talking scale animation
+        speakingMouth.scale.y = 0.8 + Math.abs(Math.sin(time * 15.0)) * 0.7;
+      } else {
+        idleMouth.visible = true;
+        speakingMouth.visible = false;
+      }
+
+      // Thinking State - Brows only, side-to-side head rotation removed
+      if (isThinking) {
+        // Furrow brows
+        leftBrow.position.y = 0.33;
+        rightBrow.position.y = 0.33;
+        leftBrow.rotation.z = -0.15;
+        rightBrow.rotation.z = 0.15;
+      } else if (isTalking) {
+        // Raise brows
+        leftBrow.position.y = 0.38;
+        rightBrow.position.y = 0.38;
+        leftBrow.rotation.z = 0;
+        rightBrow.rotation.z = 0;
+      } else {
+        // Reset brows to idle position
+        leftBrow.position.y = THREE.MathUtils.lerp(leftBrow.position.y, 0.35, 0.1);
+        rightBrow.position.y = THREE.MathUtils.lerp(rightBrow.position.y, 0.35, 0.1);
+        leftBrow.rotation.z = THREE.MathUtils.lerp(leftBrow.rotation.z, 0, 0.1);
+        rightBrow.rotation.z = THREE.MathUtils.lerp(rightBrow.rotation.z, 0, 0.1);
+      }
+
+      renderer.render(scene, camera);
+      gl.endFrameEXP();
     };
+
     render();
   };
 
@@ -223,12 +214,13 @@ export default function AvatarSessionScreen() {
     };
   }, []);
 
+  // UI Pulse Animation
   useEffect(() => {
     if (status === 'recording') {
       Animated.loop(
         Animated.sequence([
-          Animated.timing(pulseAnim, { toValue: 1.2, duration: 500, useNativeDriver: true }),
-          Animated.timing(pulseAnim, { toValue: 1, duration: 500, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1.15, duration: 600, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
         ])
       ).start();
     } else {
@@ -236,6 +228,8 @@ export default function AvatarSessionScreen() {
       pulseAnim.setValue(1);
     }
   }, [status]);
+
+  // --- Voice / Transcription / AI Logic ---
 
   async function startRecording() {
     if (isStartingRecording.current || recordingRef.current || status !== 'idle') return;
@@ -252,8 +246,8 @@ export default function AvatarSessionScreen() {
       setStatus('recording');
 
       if (!supabaseSessionIdRef.current) {
-        const result = await createSession({ startedAt: new Date().toISOString() });
-        supabaseSessionIdRef.current = result.id;
+        const { id } = await createSession({ startedAt: new Date().toISOString() });
+        supabaseSessionIdRef.current = id;
       }
     } catch (err) {
       console.error('[Avatar] Start failed:', err);
@@ -327,7 +321,8 @@ export default function AvatarSessionScreen() {
   const handleBack = useCallback(async () => {
     Speech.stop();
     if (supabaseSessionIdRef.current) {
-      if (userThoughts.length === 0) {
+      const userMsgCount = messages.filter(m => m.type === 'user').length;
+      if (userMsgCount === 0) {
         deleteSession(supabaseSessionIdRef.current).catch(() => {});
       } else {
         const now = new Date().toISOString();
@@ -349,7 +344,7 @@ export default function AvatarSessionScreen() {
       }
     }
     navigation.navigate('JournalHomeScreen');
-  }, [navigation, messages, userThoughts.length]);
+  }, [navigation, messages]);
 
   const handleEndSession = async () => {
     if (userThoughts.length > 0) {
@@ -366,25 +361,31 @@ export default function AvatarSessionScreen() {
   return (
     <View style={styles.container}>
       {isFocused && <StatusBar hidden />}
+      
+      {/* 3D Canvas Area */}
       <View style={styles.upperHalf}>
         <GLView style={StyleSheet.absoluteFill} onContextCreate={onContextCreate} />
       </View>
+
+      {/* Control Panel Area */}
       <View style={styles.lowerHalf}>
         <View style={styles.header}>
           <TouchableOpacity onPress={handleBack} hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}>
             <Text style={styles.backText}>Back</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Avatar Session</Text>
+          <Text style={styles.headerTitle}>AI Assistant</Text>
           <View style={{ width: 40 }} />
         </View>
+
         <View style={styles.statusBox}>
           <Text style={styles.statusText}>
-            {status === 'idle' && 'Tap and hold to speak'}
-            {status === 'recording' && 'Listening...'}
-            {status === 'processing' && 'Thinking...'}
-            {status === 'speaking' && 'Speaking...'}
+            {status === 'idle' && 'Hold mic to speak'}
+            {status === 'recording' && 'I\'m listening...'}
+            {status === 'processing' && 'One moment...'}
+            {status === 'speaking' && 'Reflecting...'}
           </Text>
         </View>
+
         <View style={styles.buttonContainer}>
           <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
             <TouchableOpacity
@@ -397,8 +398,9 @@ export default function AvatarSessionScreen() {
             </TouchableOpacity>
           </Animated.View>
         </View>
+
         <TouchableOpacity style={styles.endButton} onPress={handleEndSession}>
-          <Text style={styles.endButtonText}>End Session</Text>
+          <Text style={styles.endButtonText}>End Conversation</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -407,17 +409,17 @@ export default function AvatarSessionScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1A2633' },
-  upperHalf: { flex: 1, overflow: 'hidden' },
-  lowerHalf: { flex: 1, backgroundColor: '#FAFBFC', alignItems: 'center', paddingBottom: 40 },
+  upperHalf: { flex: 1.2, overflow: 'hidden' },
+  lowerHalf: { flex: 1, backgroundColor: '#FAFBFC', alignItems: 'center', paddingBottom: 40, borderTopLeftRadius: 30, borderTopRightRadius: 30, marginTop: -30, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: -5 }, shadowOpacity: 0.1, shadowRadius: 10 },
   header: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingVertical: 20 },
   backText: { color: '#3498db', fontSize: 16, fontWeight: '600' },
   headerTitle: { fontSize: 17, fontWeight: '700', color: '#2D3436' },
-  statusBox: { marginTop: 10, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, backgroundColor: 'rgba(52, 152, 219, 0.1)' },
+  statusBox: { marginTop: 10, paddingVertical: 10, paddingHorizontal: 20, borderRadius: 20, backgroundColor: 'rgba(52, 152, 219, 0.08)' },
   statusText: { fontSize: 18, color: '#3498db', fontWeight: '600' },
   buttonContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  recordButton: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#3498db', justifyContent: 'center', alignItems: 'center', elevation: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10 },
-  recordButtonActive: { backgroundColor: '#FF5252' },
-  recordIcon: { fontSize: 40, color: '#FFFFFF' },
-  endButton: { paddingHorizontal: 30, paddingVertical: 15, borderRadius: 25, backgroundColor: '#E8ECEB' },
-  endButtonText: { color: '#636E72', fontSize: 16, fontWeight: '600' },
+  recordButton: { width: 90, height: 90, borderRadius: 45, backgroundColor: '#3498db', justifyContent: 'center', alignItems: 'center', elevation: 8, shadowColor: '#3498db', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 10 },
+  recordButtonActive: { backgroundColor: '#FF5252', shadowColor: '#FF5252' },
+  recordIcon: { fontSize: 36, color: '#FFFFFF' },
+  endButton: { paddingHorizontal: 40, paddingVertical: 14, borderRadius: 25, backgroundColor: '#F0F3F4' },
+  endButtonText: { color: '#7F8C8D', fontSize: 15, fontWeight: '700' },
 });

@@ -240,7 +240,7 @@ export async function upsertPendingCategory(
         {
           name: trimmedName,
           hit_count: 0, // Only set on insert, not on update
-          threshold: 5, // Only set on insert, not on update
+          threshold: 1, // Reset to 1 to match DB default
         },
         {
           onConflict: 'name',
@@ -266,9 +266,7 @@ export async function upsertPendingCategory(
     }
 
     // Infer if it was created or existing based on returned values
-    // If hit_count is 0 and threshold is 5 (our defaults), it's likely a new row
-    // Otherwise, it's an existing row that was returned
-    const wasCreated = result.hit_count === 0 && result.threshold === 5;
+    const wasCreated = result.hit_count === 0 && result.threshold === 1;
 
     if (wasCreated) {
       console.log('[CategoriesRepo] Created new pending category:', {
