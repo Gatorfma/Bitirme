@@ -160,6 +160,19 @@ The app uses Supabase for backend services. To enable Supabase:
    EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
    ```
 4. Ensure Row Level Security (RLS) is enabled on your tables for security
+5. Migrate tables to Supabase with the following steps:
+    5.1. Install Supabase CLI if you haven't already
+        npm install supabase
+
+    5.2 Login to and init supabase
+        npx supabase login
+        npx supabase init
+
+    5.3. Link your project to Supabase
+        npx supabase link --project-ref YOUR_PROJECT_ID
+
+    5.4. Push migrations to your Supabase project
+        npm run run-supabase-migrations
 
 **Environment Variables:**
 - `EXPO_PUBLIC_SUPABASE_URL` - Supabase project URL (client-side)
